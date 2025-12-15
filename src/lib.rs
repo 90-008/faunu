@@ -5,11 +5,12 @@ use nu_cmd_lang::create_default_context;
 use nu_engine::{command_prelude::*, eval_block};
 use nu_parser::{FlatShape, TokenContents, flatten_block, lex, parse};
 use nu_protocol::{
-    Config, PipelineData, Span,
+    Config, ListStream, PipelineData, Span,
     engine::{Call, EngineState, Stack, StateWorkingSet},
 };
 use serde::Serialize;
 use std::{
+    io::Cursor,
     sync::{Arc, Mutex, OnceLock},
     time::UNIX_EPOCH,
 };
@@ -146,9 +147,6 @@ fn run_command_internal(
     );
 
     let mut working_set = StateWorkingSet::new(engine_state);
-
-    // Capture the start offset *before* adding the file, as this is the global offset
-    // where our file begins.
     let start_offset = working_set.next_span_start();
     let block = parse(&mut working_set, Some("entry"), input.as_bytes(), false);
 
@@ -180,12 +178,59 @@ fn run_command_internal(
         PipelineData::Empty,
     );
 
-    let pipeline_data = result.map_err(cmd_err)?;
-    let table_command = nu_command::Table;
+    let pipeline_data = result.map_err(cmd_err)?.body;
+    let signals = engine_state.signals().clone();
+
+    // this is annoying but we have to collect here so we can uncover errors
+    // before passing the data off to Table, because otherwise Table
+    // can't properly handle the errors and panics (something about ShellErrorBridge
+    // having a non IO error in it somehow idk i dont care really)
+    // TODO: see if there is a way to do this without collecting the pipeline
+    let pipeline_data = match pipeline_data {
+        PipelineData::Empty => return Ok(()),
+        PipelineData::Value(Value::Error { error, .. }, _) => {
+            return Err(cmd_err(*error));
+        }
+        PipelineData::ByteStream(s, m) => match (s.span(), s.type_(), s.reader()) {
+            (span, ty, Some(r)) => {
+                use std::io::Read;
+                let v = r
+                    .bytes()
+                    .collect::<Result<Vec<u8>, _>>()
+                    .map_err(|e| cmd_err(ShellError::Io(IoError::new(e, span, None))))?;
+                (v.len() > 0)
+                    .then(|| {
+                        PipelineData::byte_stream(
+                            ByteStream::read(Cursor::new(v), span, signals, ty),
+                            m,
+                        )
+                    })
+                    .unwrap_or(PipelineData::Empty)
+            }
+            (_, _, None) => PipelineData::Empty,
+        },
+        PipelineData::ListStream(s, m) => {
+            let span = s.span();
+            let v = s
+                .into_iter()
+                .map(|val| val.unwrap_error().map_err(cmd_err))
+                .collect::<Result<Vec<Value>, _>>()?;
+            PipelineData::list_stream(ListStream::new(v.into_iter(), span, signals), m)
+        }
+        x => x,
+    };
+
+    // TODO: idk what this does i copied it from PipelineData::print_table
+    // dunno if it matters, we can just use nu_command::Table and it works fine i think
+    let table_command = engine_state
+        .table_decl_id
+        .map(|decl_id| engine_state.get_decl(decl_id))
+        .filter(|command| command.block_id().is_some())
+        .unwrap_or(&nu_command::Table);
     let call = Call::new(pipeline_data.span().unwrap_or_else(Span::unknown));
 
     let res = table_command
-        .run(engine_state, stack, &call, pipeline_data.body)
+        .run(engine_state, stack, &call, pipeline_data)
         .map_err(cmd_err)?;
 
     match res {
@@ -195,10 +240,7 @@ fn run_command_internal(
         }
         PipelineData::ByteStream(s, _) => {
             for line in s.lines().into_iter().flatten() {
-                let out = line.map_err(|e| CommandError {
-                    error: Report::new(e),
-                    start_offset,
-                })?;
+                let out = line.map_err(cmd_err)?; // TODO: do we turn this into a Value ??? or is returning err fine
                 print_to_console(&out, true);
             }
         }
@@ -224,17 +266,14 @@ pub fn run_command(input: &str) -> Option<String> {
         STACK.get().unwrap().lock().expect("stack initialized"),
     );
 
-    let result = std::panic::catch_unwind(move || {
-        match run_command_internal(&mut engine_guard, &mut stack_guard, input) {
-            Ok(_) => None,
-            Err(cmd_err) => Some(format_error(
-                cmd_err.error,
-                input.to_owned(),
-                cmd_err.start_offset,
-            )),
-        }
-    });
-    result.unwrap_or_else(|err| Some(format!("panicked: {err:?}")))
+    match run_command_internal(&mut engine_guard, &mut stack_guard, input) {
+        Ok(_) => None,
+        Err(cmd_err) => Some(format_error(
+            cmd_err.error,
+            input.to_owned(),
+            cmd_err.start_offset,
+        )),
+    }
 }
 
 #[wasm_bindgen]
