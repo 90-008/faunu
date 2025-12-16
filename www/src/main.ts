@@ -247,6 +247,12 @@ async function bootstrap() {
     cursorPos = (before + candidate.name).length;
   };
 
+  const applyCompletionFromBase = (baseLine: string, candidate: Candidate) => {
+    currentLine = getLineWithCompletion(baseLine, candidate);
+    const before = baseLine.slice(0, candidate.span_start);
+    cursorPos = (before + candidate.name).length;
+  };
+
   const updateCompletionCandidates = async () => {
     // Don't try to get completion if worker isn't loaded
     if (!isWorkerReady) return;
@@ -370,8 +376,7 @@ async function bootstrap() {
         if (completionCandidates.length > 0) {
           const cand = completionCandidates[completionIndex];
           if (cand) {
-            currentLine = getLineWithCompletion(completionBaseLine, cand);
-            cursorPos = currentLine.length;
+            applyCompletionFromBase(completionBaseLine, cand);
           }
         }
 
@@ -516,8 +521,7 @@ async function bootstrap() {
             (completionIndex - 1 + completionCandidates.length) %
             completionCandidates.length;
           const candidate = completionCandidates[completionIndex];
-          currentLine = getLineWithCompletion(completionBaseLine, candidate);
-          cursorPos = currentLine.length;
+          applyCompletionFromBase(completionBaseLine, candidate);
           await refreshPrompt();
           break;
         }
@@ -547,8 +551,7 @@ async function bootstrap() {
         if (completionCandidates.length > 0 && e === "\x1b[B") {
           completionIndex = (completionIndex + 1) % completionCandidates.length;
           const candidate = completionCandidates[completionIndex];
-          currentLine = getLineWithCompletion(completionBaseLine, candidate);
-          cursorPos = currentLine.length;
+          applyCompletionFromBase(completionBaseLine, candidate);
           await refreshPrompt();
           break;
         }
@@ -583,7 +586,7 @@ async function bootstrap() {
               (completionIndex + 1) % completionCandidates.length;
 
             const candidate = completionCandidates[completionIndex];
-            currentLine = getLineWithCompletion(completionBaseLine, candidate);
+            applyCompletionFromBase(completionBaseLine, candidate);
             await refreshPrompt();
           } else {
             // Guard: ensure worker is ready
@@ -618,8 +621,7 @@ async function bootstrap() {
             (completionIndex - 1 + completionCandidates.length) %
             completionCandidates.length;
           const candidate = completionCandidates[completionIndex];
-          currentLine = getLineWithCompletion(completionBaseLine, candidate);
-          cursorPos = currentLine.length;
+          applyCompletionFromBase(completionBaseLine, candidate);
           await refreshPrompt();
         }
         break;
