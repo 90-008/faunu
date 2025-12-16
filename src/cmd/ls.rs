@@ -1,4 +1,5 @@
 use std::{
+    borrow::Cow,
     sync::Arc,
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -32,6 +33,7 @@ impl Command for Ls {
                 "show detailed information about each file",
                 Some('l'),
             )
+            .switch("full-paths", "display paths as absolute paths", Some('f'))
             .category(Category::FileSystem)
     }
 
@@ -49,8 +51,10 @@ impl Command for Ls {
         let path_arg: Option<String> = call.opt(engine_state, stack, 0)?;
         let all = call.has_flag(engine_state, stack, "all")?;
         let long = call.has_flag(engine_state, stack, "long")?;
+        let full_paths = call.has_flag(engine_state, stack, "full-paths")?;
 
-        let mut target_dir = get_pwd();
+        let pwd = get_pwd();
+        let mut target_dir = pwd.clone();
         if let Some(path) = path_arg {
             target_dir = Arc::new(
                 target_dir
@@ -93,38 +97,33 @@ impl Command for Ls {
             }
             Value::record(record, span)
         };
-        const DIR_METADATA: vfs::VfsMetadata = vfs::VfsMetadata {
-            file_type: vfs::VfsFileType::Directory,
-            len: 0,
-            modified: None,
-            created: None,
-            accessed: None,
-        };
 
-        let dots = if all {
-            vec![
-                make_record(".", &DIR_METADATA),
-                make_record("..", &DIR_METADATA),
-            ]
-        } else {
-            Vec::new()
-        };
-        let entries = dots
-            .into_iter()
-            .chain(entries.into_iter().flat_map(move |entry| {
-                let do_map = move || {
-                    let name = entry.filename();
-                    if name.starts_with('.') && !all {
-                        return Ok(None);
-                    }
-                    let metadata = entry.metadata().map_err(to_shell_err(span))?;
+        let entries = entries.into_iter().flat_map(move |entry| {
+            let do_map = || {
+                let name = entry.filename();
+                if name.starts_with('.') && !all {
+                    return Ok(None);
+                }
+                let metadata = entry.metadata().map_err(to_shell_err(span))?;
 
-                    Ok(Some(make_record(&name, &metadata)))
+                let name = if full_paths {
+                    format!("{path}/{name}", path = target_dir.as_str())
+                } else {
+                    let path = target_dir
+                        .as_str()
+                        .trim_start_matches(pwd.as_str())
+                        .trim_start_matches("/");
+                    format!(
+                        "{path}{sep}{name}",
+                        sep = path.is_empty().then_some("").unwrap_or("/"),
+                    )
                 };
-                do_map()
-                    .transpose()
-                    .map(|res| res.unwrap_or_else(|err| Value::error(err, span)))
-            }));
+                Ok(Some(make_record(&name, &metadata)))
+            };
+            do_map()
+                .transpose()
+                .map(|res| res.unwrap_or_else(|err| Value::error(err, span)))
+        });
 
         let signals = engine_state.signals().clone();
         Ok(PipelineData::list_stream(
