@@ -1,4 +1,7 @@
+use async_lock::{RwLock, RwLockReadGuard, RwLockUpgradableReadGuard, RwLockWriteGuard};
+use futures::FutureExt;
 use jacquard::chrono;
+use js_sys::Promise;
 use miette::Report;
 use nu_cmd_base::hook::eval_hook;
 use nu_cmd_extra::add_extra_command_context;
@@ -7,17 +10,17 @@ use nu_engine::{command_prelude::*, eval_block};
 use nu_parser::{FlatShape, TokenContents, flatten_block, lex, parse};
 use nu_protocol::{
     Config, ListStream, PipelineData, Signals, Span,
-    engine::{Call, EngineState, Stack, StateWorkingSet},
+    engine::{EngineState, Stack, StateWorkingSet},
 };
 use serde::Serialize;
 use std::{
     io::Cursor,
-    path::PathBuf,
-    sync::{Arc, Mutex, OnceLock},
+    sync::{Arc, OnceLock},
     time::UNIX_EPOCH,
 };
 use vfs::VfsError;
 use wasm_bindgen::prelude::*;
+use wasm_bindgen_futures::future_to_promise;
 
 pub mod cmd;
 pub mod completion;
@@ -67,8 +70,25 @@ fn panic_hook(info: &std::panic::PanicHookInfo) {
     let _ = print_to_console(&msg, false);
 }
 
-static ENGINE_STATE: OnceLock<Mutex<EngineState>> = OnceLock::new();
-static STACK: OnceLock<Mutex<Stack>> = OnceLock::new();
+static ENGINE_STATE: OnceLock<RwLock<EngineState>> = OnceLock::new();
+#[inline]
+async fn read_engine_state() -> RwLockReadGuard<'static, EngineState> {
+    ENGINE_STATE.get().unwrap().read().await
+}
+#[inline]
+async fn write_engine_state() -> RwLockWriteGuard<'static, EngineState> {
+    ENGINE_STATE.get().unwrap().write().await
+}
+
+static STACK: OnceLock<RwLock<Stack>> = OnceLock::new();
+#[inline]
+async fn read_stack() -> RwLockReadGuard<'static, Stack> {
+    STACK.get().unwrap().read().await
+}
+#[inline]
+async fn write_stack() -> RwLockWriteGuard<'static, Stack> {
+    STACK.get().unwrap().write().await
+}
 
 fn init_engine_internal() -> Result<(), Report> {
     let mut engine_state = create_default_context();
@@ -146,10 +166,10 @@ ls --help"#;
     engine_state.set_signals(Signals::new(Arc::new(InterruptBool)));
 
     ENGINE_STATE
-        .set(Mutex::new(engine_state))
+        .set(RwLock::new(engine_state))
         .map_err(|_| miette::miette!("ENGINE_STATE was already set!?"))?;
     STACK
-        .set(Mutex::new(Stack::new()))
+        .set(RwLock::new(Stack::new()))
         .map_err(|_| miette::miette!("STACK was already set!?"))?;
 
     // web_sys::console::log_1(&"Hello, World!".into());
@@ -163,20 +183,26 @@ pub fn init_engine() -> String {
     init_engine_internal().map_or_else(|err| format!("error: {err}"), |_| String::new())
 }
 
-fn run_command_internal(
-    engine_state: &mut EngineState,
-    stack: &mut Stack,
-    input: &str,
-) -> Result<(), CommandError> {
-    // apply any pending deltas from previous commands (like `source`)
-    apply_pending_deltas(engine_state).map_err(|e| CommandError {
-        error: Report::new(e),
-        start_offset: 0,
-    })?;
-    let pwd = get_pwd_string().into_value(Span::unknown());
-    engine_state.add_env_var("PWD".to_string(), pwd.clone());
+async fn run_command_internal(input: &str) -> Result<(), CommandError> {
+    let mut engine_state = ENGINE_STATE.get().unwrap().upgradable_read().await;
+    let (mut working_set, signals, config) = {
+        let mut write_engine_state = RwLockUpgradableReadGuard::upgrade(engine_state).await;
+        apply_pending_deltas(&mut write_engine_state).map_err(|e| CommandError {
+            error: Report::new(e),
+            start_offset: 0,
+        })?;
+        write_engine_state.add_env_var(
+            "PWD".to_string(),
+            get_pwd_string().into_value(Span::unknown()),
+        );
+        engine_state = RwLockWriteGuard::downgrade_to_upgradable(write_engine_state);
 
-    let mut working_set = StateWorkingSet::new(engine_state);
+        (
+            StateWorkingSet::new(&engine_state),
+            engine_state.signals().clone(),
+            engine_state.config.clone(),
+        )
+    };
     let start_offset = working_set.next_span_start();
     let block = parse(&mut working_set, Some("entry"), input.as_bytes(), false);
 
@@ -197,19 +223,23 @@ fn run_command_internal(
             start_offset,
         });
     }
+    let delta = working_set.delta;
 
-    engine_state
-        .merge_delta(working_set.delta)
-        .map_err(cmd_err)?;
-    let result = eval_block::<nu_protocol::debugger::WithoutDebug>(
-        engine_state,
-        stack,
-        &block,
-        PipelineData::Empty,
-    );
+    let result = {
+        let mut write_engine_state = RwLockUpgradableReadGuard::upgrade(engine_state).await;
+        let mut stack = write_stack().await;
+        write_engine_state.merge_delta(delta).map_err(cmd_err)?;
+        let res = eval_block::<nu_protocol::debugger::WithoutDebug>(
+            &mut write_engine_state,
+            &mut stack,
+            &block,
+            PipelineData::Empty,
+        );
+        engine_state = RwLockWriteGuard::downgrade_to_upgradable(write_engine_state);
+        res
+    };
 
     let pipeline_data = result.map_err(cmd_err)?.body;
-    let signals = engine_state.signals().clone();
 
     // this is annoying but we have to collect here so we can uncover errors
     // before passing the data off to Table, because otherwise Table
@@ -250,23 +280,24 @@ fn run_command_internal(
         x => x,
     };
 
-    let conf = stack.get_config(engine_state);
-    let hook = conf.hooks.display_output.as_ref();
-    let res = eval_hook(
-        engine_state,
-        stack,
-        Some(pipeline_data),
-        vec![],
-        hook.unwrap(),
-        "display_output",
-    )
-    .map_err(cmd_err)?;
+    let res = {
+        let mut write_engine_state = RwLockUpgradableReadGuard::upgrade(engine_state).await;
+        let mut stack = write_stack().await;
+        eval_hook(
+            &mut write_engine_state,
+            &mut stack,
+            Some(pipeline_data),
+            vec![],
+            config.hooks.display_output.as_ref().unwrap(),
+            "display_output",
+        )
+        .map_err(cmd_err)?
+    };
 
     match res {
         PipelineData::Empty => {}
         PipelineData::Value(v, _) => {
-            print_to_console(&v.to_expanded_string("\n", &engine_state.config), true)
-                .map_err(cmd_err)?;
+            print_to_console(&v.to_expanded_string("\n", &config), true).map_err(cmd_err)?;
         }
         PipelineData::ByteStream(s, _) => {
             for line in s.lines().into_iter().flatten() {
@@ -279,7 +310,7 @@ fn run_command_internal(
                 let out = item
                     .unwrap_error()
                     .map_err(cmd_err)?
-                    .to_expanded_string("\n", &engine_state.config);
+                    .to_expanded_string("\n", &config);
                 print_to_console(&out, true).map_err(cmd_err)?;
             }
         }
@@ -289,25 +320,30 @@ fn run_command_internal(
 }
 
 #[wasm_bindgen]
-pub fn run_command(input: &str) -> Option<String> {
-    let (mut engine_guard, mut stack_guard) = (
-        ENGINE_STATE
-            .get()
-            .unwrap()
-            .lock()
-            .expect("engine state initialized"),
-        STACK.get().unwrap().lock().expect("stack initialized"),
-    );
-
+pub fn run_command(input: String) -> Promise {
     set_interrupt(false);
-    match run_command_internal(&mut engine_guard, &mut stack_guard, input) {
-        Ok(_) => None,
-        Err(cmd_err) => Some(format_error(
-            cmd_err.error,
-            input.to_owned(),
-            cmd_err.start_offset,
-        )),
-    }
+
+    future_to_promise(async move {
+        run_command_internal(&input)
+            .map(|res| {
+                res.map_or_else(
+                    |cmd_err| {
+                        Some(format_error(
+                            cmd_err.error,
+                            input.to_owned(),
+                            cmd_err.start_offset,
+                        ))
+                    },
+                    |_| None,
+                )
+            })
+            .map(|res| {
+                Ok(res
+                    .map(|s| JsValue::from_str(&s))
+                    .unwrap_or_else(JsValue::null))
+            })
+            .await
+    })
 }
 
 #[wasm_bindgen]
@@ -319,14 +355,4 @@ pub fn get_pwd_string() -> String {
         return "/".to_string();
     }
     pwd.as_str().to_string()
-}
-
-pub fn get_pwd_buf() -> PathBuf {
-    // web_sys::console::log_1(&"before pwd".into());
-    let pwd = get_pwd();
-    // web_sys::console::log_1(&"after pwd".into());
-    if pwd.is_root() {
-        return PathBuf::new().join("/");
-    }
-    pwd.as_str().into()
 }

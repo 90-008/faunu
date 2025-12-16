@@ -1,22 +1,22 @@
+use futures::FutureExt;
+use js_sys::Promise;
+use wasm_bindgen_futures::future_to_promise;
+
 use super::*;
 
 #[wasm_bindgen]
-pub fn highlight(input: &str) -> String {
-    let engine_guard = ENGINE_STATE
-        .get()
-        .unwrap()
-        .lock()
-        .expect("engine state initialized");
-    let mut working_set = StateWorkingSet::new(&engine_guard);
+pub fn highlight(input: String) -> Promise {
+    future_to_promise(highlight_impl(input).map(|s| Ok(JsValue::from_str(&s))))
+}
 
-    // Capture the global offset before parsing, as parse will generate spans relative to this
-    let global_offset = working_set.next_span_start();
-
-    // Parse the input block using Nushell's full parser
-    let block = parse(&mut working_set, None, input.as_bytes(), false);
-
-    // Flatten the block to get shapes (semantic tokens)
-    let shapes = flatten_block(&working_set, &block);
+pub async fn highlight_impl(input: String) -> String {
+    let (global_offset, shapes) = {
+        let engine_guard = read_engine_state().await;
+        let mut working_set = StateWorkingSet::new(&engine_guard);
+        let offset = working_set.next_span_start();
+        let block = parse(&mut working_set, None, input.as_bytes(), false);
+        (offset, flatten_block(&working_set, &block))
+    };
 
     let mut output = String::new();
     let mut last_end = 0;

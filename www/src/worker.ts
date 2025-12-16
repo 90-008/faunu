@@ -23,7 +23,7 @@ register_task_count_callback((count: number) => {
 });
 
 // Handle messages from Main Thread
-self.onmessage = (e) => {
+self.onmessage = async (e) => {
   const { id, type, payload } = e.data;
 
   // console.log("Received message:", id, type, payload);
@@ -35,13 +35,13 @@ self.onmessage = (e) => {
         set_interrupt_buffer(payload);
         break;
       case "run":
-        result = run_command(payload);
+        result = await run_command(payload);
         break;
       case "completion":
-        result = completion(payload.line, payload.cursor);
+        result = await completion(payload.line, payload.cursor);
         break;
       case "highlight":
-        result = highlight(payload);
+        result = await highlight(payload);
         break;
       case "get_pwd":
         result = get_pwd_string();

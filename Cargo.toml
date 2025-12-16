@@ -37,6 +37,7 @@ console_error_panic_hook = "0.1.7"
 
 scc = "3"
 rapidhash = { version = "4", features = ["unsafe"] }
+async-lock = "3.4.1"
 
 [patch.crates-io]
 vfs = { git = "https://github.com/landaire/rust-vfs", branch = "fix/wasm" }

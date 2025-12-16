@@ -1,3 +1,7 @@
+use futures::FutureExt;
+use js_sys::Promise;
+use wasm_bindgen_futures::future_to_promise;
+
 use super::*;
 
 #[derive(Debug, Serialize)]
@@ -28,12 +32,12 @@ impl Ord for Suggestion {
 }
 
 #[wasm_bindgen]
-pub fn completion(input: &str, js_cursor_pos: usize) -> String {
-    let engine_guard = ENGINE_STATE
-        .get()
-        .unwrap()
-        .lock()
-        .expect("engine state initialized");
+pub fn completion(input: String, js_cursor_pos: usize) -> Promise {
+    future_to_promise(completion_impl(input, js_cursor_pos).map(|s| Ok(JsValue::from_str(&s))))
+}
+
+pub async fn completion_impl(input: String, js_cursor_pos: usize) -> String {
+    let engine_guard = read_engine_state().await;
     let root = get_pwd();
 
     // Map UTF-16 cursor position (from JS) to Byte index (for Rust)
@@ -43,12 +47,13 @@ pub fn completion(input: &str, js_cursor_pos: usize) -> String {
         .nth(js_cursor_pos)
         .unwrap_or(input.len());
 
-    // 1. Parse & Flatten
-    let mut working_set = StateWorkingSet::new(&engine_guard);
-    // CRITICAL: Capture the start offset so we can normalize spans later
-    let global_offset = working_set.next_span_start();
-    let block = parse(&mut working_set, None, input.as_bytes(), false);
-    let shapes = flatten_block(&working_set, &block);
+    let (working_set, shapes, global_offset) = {
+        let mut working_set = StateWorkingSet::new(&engine_guard);
+        let global_offset = working_set.next_span_start();
+        let block = parse(&mut working_set, None, input.as_bytes(), false);
+        let shapes = flatten_block(&working_set, &block);
+        (working_set, shapes, global_offset)
+    };
 
     // 2. Identify context
     let mut is_command_pos = false;
@@ -91,6 +96,11 @@ pub fn completion(input: &str, js_cursor_pos: usize) -> String {
             break;
         }
     }
+
+    let cmds =
+        working_set.find_commands_by_predicate(|value| value.starts_with(prefix.as_bytes()), true);
+    drop(working_set);
+    drop(engine_guard);
 
     // Fallback to Lexer if in whitespace
     if !found_shape {
@@ -146,12 +156,8 @@ pub fn completion(input: &str, js_cursor_pos: usize) -> String {
         });
     };
 
-    let working_set = StateWorkingSet::new(&engine_guard);
-
     if is_command_pos {
-        for (_, name, desc, _) in working_set
-            .find_commands_by_predicate(|value| value.starts_with(prefix.as_bytes()), true)
-        {
+        for (_, name, desc, _) in cmds {
             add_cmd_suggestion(name, desc);
         }
     } else {

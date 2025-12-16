@@ -174,6 +174,7 @@ async function bootstrap() {
         output += currentLine;
       }
     } catch (e) {
+      console.error(`cant highlight: ${e}`);
       output += currentLine;
     }
 
