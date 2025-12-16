@@ -24,3 +24,6 @@ vite.config.ts.timestamp-*
 /result
 /.direnv
 target
+
+# ai scratchpad
+/.scratchpad

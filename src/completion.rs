@@ -152,10 +152,60 @@ pub async fn completion_impl(input: String, js_cursor_pos: usize) -> String {
         ))
     };
 
+    // Helper function to find command name and count arguments before cursor
+    let find_command_and_arg_index =
+        |current_idx: usize, current_local_span: Span| -> Option<(String, usize)> {
+            let mut command_name: Option<String> = None;
+            let mut arg_count = 0;
+
+            // Look backwards through shapes to find the command
+            for i in (0..current_idx).rev() {
+                if let Some((prev_span, prev_shape)) = shapes.get(i) {
+                    let prev_local_span = to_local_span(*prev_span);
+
+                    // Check if there's a separator between this shape and the next one
+                    let next_shape_start = if i + 1 < shapes.len() {
+                        to_local_span(shapes[i + 1].0).start
+                    } else {
+                        current_local_span.start
+                    };
+
+                    if has_separator_between(prev_local_span.end, next_shape_start) {
+                        break; // Stop at separator
+                    }
+
+                    if is_command_shape(prev_shape, prev_local_span) {
+                        // Found the command
+                        let cmd_text = safe_slice(prev_local_span);
+                        // Extract just the command name (first word, no flags)
+                        let cmd_name = cmd_text
+                            .split_whitespace()
+                            .next()
+                            .unwrap_or(&cmd_text)
+                            .trim();
+                        command_name = Some(cmd_name.to_string());
+                        break;
+                    } else {
+                        // This is an argument - count it if it's not a flag
+                        let arg_text = safe_slice(prev_local_span);
+                        let trimmed_arg = arg_text.trim();
+                        // Don't count flags (starting with -) or empty arguments
+                        if !trimmed_arg.is_empty() && !trimmed_arg.starts_with('-') {
+                            arg_count += 1;
+                        }
+                    }
+                }
+            }
+
+            command_name.map(|name| (name, arg_count))
+        };
+
     // Helper function to handle both Block and Closure shapes
     let handle_block_or_closure = |prefix: &str,
                                    span: Span,
-                                   shape_name: &str|
+                                   shape_name: &str,
+                                   current_idx: usize,
+                                   local_span: Span|
      -> Option<CompletionContext> {
         web_sys::console::log_1(&JsValue::from_str(&format!(
             "[completion] Processing {} shape with prefix: {:?}",
@@ -203,13 +253,51 @@ pub async fn completion_impl(input: String, js_cursor_pos: usize) -> String {
                 })
             } else {
                 web_sys::console::log_1(&JsValue::from_str(&format!(
-                    "[completion] {} has no separator, setting Argument context",
+                    "[completion] {} has no separator, checking for flag/argument context",
                     shape_name
                 )));
-                Some(CompletionContext::Argument {
-                    prefix: trimmed_prefix,
-                    span: adjusted_span,
-                })
+                // Check if this is a flag or command argument
+                let trimmed = trimmed_prefix.trim();
+                let is_flag = trimmed.starts_with('-');
+
+                // Try to find the command and argument index
+                if let Some((cmd_name, arg_index)) =
+                    find_command_and_arg_index(current_idx, local_span)
+                {
+                    if is_flag {
+                        web_sys::console::log_1(&JsValue::from_str(&format!(
+                            "[completion] {}: Found command {:?} for flag completion",
+                            shape_name, cmd_name
+                        )));
+                        Some(CompletionContext::Flag {
+                            prefix: trimmed.to_string(),
+                            span: adjusted_span,
+                            command_name: cmd_name,
+                        })
+                    } else {
+                        web_sys::console::log_1(&JsValue::from_str(&format!(
+                            "[completion] {}: Found command {:?} with arg_index {} for argument completion",
+                            shape_name, cmd_name, arg_index
+                        )));
+                        Some(CompletionContext::CommandArgument {
+                            prefix: trimmed.to_string(),
+                            span: adjusted_span,
+                            command_name: cmd_name,
+                            arg_index,
+                        })
+                    }
+                } else {
+                    // No command found, treat as regular argument
+                    web_sys::console::log_1(&JsValue::from_str(&format!(
+                        "[completion] {}: No command found{}, using Argument context",
+                        shape_name,
+                        if is_flag { " for flag" } else { "" }
+                    )));
+                    Some(CompletionContext::Argument {
+                        prefix: trimmed_prefix,
+                        span: adjusted_span,
+                    })
+                }
             }
         } else {
             None
@@ -219,8 +307,25 @@ pub async fn completion_impl(input: String, js_cursor_pos: usize) -> String {
     // Find what we're completing
     #[derive(Debug)]
     enum CompletionContext {
-        Command { prefix: String, span: Span },
-        Argument { prefix: String, span: Span },
+        Command {
+            prefix: String,
+            span: Span,
+        },
+        Argument {
+            prefix: String,
+            span: Span,
+        },
+        Flag {
+            prefix: String,
+            span: Span,
+            command_name: String,
+        },
+        CommandArgument {
+            prefix: String,
+            span: Span,
+            command_name: String,
+            arg_index: usize,
+        },
     }
 
     let mut context: Option<CompletionContext> = None;
@@ -323,12 +428,42 @@ pub async fn completion_impl(input: String, js_cursor_pos: usize) -> String {
                             &prefix,
                             span,
                             shape.as_str().trim_start_matches("shape_"),
+                            idx,
+                            local_span,
                         ) {
                             context = Some(ctx);
                         }
                     }
                     _ => {
-                        context = Some(CompletionContext::Argument { prefix, span });
+                        // Check if this is a flag or command argument
+                        let trimmed_prefix = prefix.trim();
+                        if trimmed_prefix.starts_with('-') {
+                            // This looks like a flag - find the command
+                            if let Some((cmd_name, _)) = find_command_and_arg_index(idx, local_span)
+                            {
+                                context = Some(CompletionContext::Flag {
+                                    prefix: trimmed_prefix.to_string(),
+                                    span,
+                                    command_name: cmd_name,
+                                });
+                            } else {
+                                context = Some(CompletionContext::Argument { prefix, span });
+                            }
+                        } else {
+                            // This is a positional argument - find the command and argument index
+                            if let Some((cmd_name, arg_index)) =
+                                find_command_and_arg_index(idx, local_span)
+                            {
+                                context = Some(CompletionContext::CommandArgument {
+                                    prefix: trimmed_prefix.to_string(),
+                                    span,
+                                    command_name: cmd_name,
+                                    arg_index,
+                                });
+                            } else {
+                                context = Some(CompletionContext::Argument { prefix, span });
+                            }
+                        }
                     }
                 }
             }
@@ -438,14 +573,93 @@ pub async fn completion_impl(input: String, js_cursor_pos: usize) -> String {
                     last_word
                 )));
             } else {
-                context = Some(CompletionContext::Argument {
-                    prefix: last_word.to_string(),
-                    span: Span::new(last_word_start, byte_pos),
-                });
-                web_sys::console::log_1(&JsValue::from_str(&format!(
-                    "[completion] Set Argument context with prefix: {:?}",
-                    last_word
-                )));
+                // Check if this is a flag or command argument
+                let trimmed_word = last_word.trim();
+                if trimmed_word.starts_with('-') {
+                    // Try to find command by looking backwards through shapes
+                    let mut found_cmd = None;
+                    for (span, shape) in shapes.iter().rev() {
+                        let local_span = to_local_span(*span);
+                        if local_span.end <= byte_pos && is_command_shape(shape, local_span) {
+                            let cmd_text = safe_slice(local_span);
+                            let cmd_name = cmd_text
+                                .split_whitespace()
+                                .next()
+                                .unwrap_or(&cmd_text)
+                                .trim();
+                            found_cmd = Some(cmd_name.to_string());
+                            break;
+                        }
+                    }
+                    if let Some(cmd_name) = found_cmd {
+                        let cmd_name_clone = cmd_name.clone();
+                        context = Some(CompletionContext::Flag {
+                            prefix: trimmed_word.to_string(),
+                            span: Span::new(last_word_start, byte_pos),
+                            command_name: cmd_name,
+                        });
+                        web_sys::console::log_1(&JsValue::from_str(&format!(
+                            "[completion] Set Flag context with prefix: {:?}, command: {:?}",
+                            trimmed_word, cmd_name_clone
+                        )));
+                    } else {
+                        context = Some(CompletionContext::Argument {
+                            prefix: last_word.to_string(),
+                            span: Span::new(last_word_start, byte_pos),
+                        });
+                        web_sys::console::log_1(&JsValue::from_str(&format!(
+                            "[completion] Set Argument context with prefix: {:?}",
+                            last_word
+                        )));
+                    }
+                } else {
+                    // Try to find command and argument index
+                    let mut found_cmd = None;
+                    let mut arg_count = 0;
+                    for (span, shape) in shapes.iter().rev() {
+                        let local_span = to_local_span(*span);
+                        if local_span.end <= byte_pos {
+                            if is_command_shape(shape, local_span) {
+                                let cmd_text = safe_slice(local_span);
+                                let cmd_name = cmd_text
+                                    .split_whitespace()
+                                    .next()
+                                    .unwrap_or(&cmd_text)
+                                    .trim();
+                                found_cmd = Some(cmd_name.to_string());
+                                break;
+                            } else {
+                                let arg_text = safe_slice(local_span);
+                                let trimmed_arg = arg_text.trim();
+                                if !trimmed_arg.is_empty() && !trimmed_arg.starts_with('-') {
+                                    arg_count += 1;
+                                }
+                            }
+                        }
+                    }
+                    if let Some(cmd_name) = found_cmd {
+                        let cmd_name_clone = cmd_name.clone();
+                        context = Some(CompletionContext::CommandArgument {
+                            prefix: trimmed_word.to_string(),
+                            span: Span::new(last_word_start, byte_pos),
+                            command_name: cmd_name,
+                            arg_index: arg_count,
+                        });
+                        web_sys::console::log_1(&JsValue::from_str(&format!(
+                            "[completion] Set CommandArgument context with prefix: {:?}, command: {:?}, arg_index: {}",
+                            trimmed_word, cmd_name_clone, arg_count
+                        )));
+                    } else {
+                        context = Some(CompletionContext::Argument {
+                            prefix: last_word.to_string(),
+                            span: Span::new(last_word_start, byte_pos),
+                        });
+                        web_sys::console::log_1(&JsValue::from_str(&format!(
+                            "[completion] Set Argument context with prefix: {:?}",
+                            last_word
+                        )));
+                    }
+                }
             }
         }
     }
@@ -459,6 +673,12 @@ pub async fn completion_impl(input: String, js_cursor_pos: usize) -> String {
         let char_start = input[..span.start].chars().count();
         let char_end = input[..span.end].chars().count();
         Span::new(char_start, char_end)
+    };
+
+    let get_command_signature = |cmd_name: &str| -> Option<nu_protocol::Signature> {
+        engine_guard
+            .find_decl(cmd_name.as_bytes(), &[])
+            .map(|id| engine_guard.get_decl(id).signature())
     };
 
     match context {
@@ -545,6 +765,284 @@ pub async fn completion_impl(input: String, js_cursor_pos: usize) -> String {
                 "[completion] Found {} file suggestions",
                 file_count
             )));
+        }
+        Some(CompletionContext::Flag {
+            prefix,
+            span,
+            command_name,
+        }) => {
+            web_sys::console::log_1(&JsValue::from_str(&format!(
+                "[completion] Generating Flag suggestions for command: {:?}, prefix: {:?}",
+                command_name, prefix
+            )));
+
+            if let Some(signature) = get_command_signature(&command_name) {
+                let span = to_char_span(span);
+                let mut flag_count = 0;
+
+                // Get switches from signature
+                // Signature has a named field that contains named arguments (including switches)
+                for flag in &signature.named {
+                    // Check if this is a switch (has no argument)
+                    // Switches have arg: None, named arguments have arg: Some(SyntaxShape)
+                    let is_switch = flag.arg.is_none();
+
+                    if is_switch {
+                        let long_name = format!("--{}", flag.long);
+                        let short_name = flag.short.map(|c| format!("-{}", c));
+
+                        // Check if prefix matches long or short form
+                        let matches_long = long_name.starts_with(&prefix) || prefix.is_empty();
+                        let matches_short = short_name
+                            .as_ref()
+                            .map(|s| s.starts_with(&prefix) || prefix.is_empty())
+                            .unwrap_or(false);
+
+                        if matches_long {
+                            suggestions.push(Suggestion {
+                                name: long_name.clone(),
+                                description: Some(flag.desc.clone()),
+                                is_command: false,
+                                rendered: {
+                                    let flag_colored =
+                                        ansi_term::Color::Cyan.bold().paint(&long_name);
+                                    format!("{flag_colored} {}", flag.desc)
+                                },
+                                span_start: span.start,
+                                span_end: span.end,
+                            });
+                            flag_count += 1;
+                        }
+
+                        if matches_short {
+                            if let Some(short) = short_name {
+                                suggestions.push(Suggestion {
+                                    name: short.clone(),
+                                    description: Some(flag.desc.clone()),
+                                    is_command: false,
+                                    rendered: {
+                                        let flag_colored =
+                                            ansi_term::Color::Cyan.bold().paint(&short);
+                                        format!("{flag_colored} {}", flag.desc)
+                                    },
+                                    span_start: span.start,
+                                    span_end: span.end,
+                                });
+                                flag_count += 1;
+                            }
+                        }
+                    }
+                }
+
+                web_sys::console::log_1(&JsValue::from_str(&format!(
+                    "[completion] Found {} flag suggestions",
+                    flag_count
+                )));
+            } else {
+                web_sys::console::log_1(&JsValue::from_str(&format!(
+                    "[completion] Could not find signature for command: {:?}",
+                    command_name
+                )));
+            }
+        }
+        Some(CompletionContext::CommandArgument {
+            prefix,
+            span,
+            command_name,
+            arg_index,
+        }) => {
+            web_sys::console::log_1(&JsValue::from_str(&format!(
+                "[completion] Generating CommandArgument suggestions for command: {:?}, arg_index: {}, prefix: {:?}",
+                command_name, arg_index, prefix
+            )));
+
+            if let Some(signature) = get_command_signature(&command_name) {
+                // Get positional arguments from signature
+                // Combine required and optional positional arguments
+                let mut all_positional = Vec::new();
+                all_positional.extend_from_slice(&signature.required_positional);
+                all_positional.extend_from_slice(&signature.optional_positional);
+
+                // Find the argument at the given index
+                if let Some(arg) = all_positional.get(arg_index) {
+                    // Check the SyntaxShape to determine completion type
+                    match &arg.shape {
+                        nu_protocol::SyntaxShape::String | nu_protocol::SyntaxShape::Filepath => {
+                            // File/directory completion
+                            let (dir, file_prefix) = prefix
+                                .rfind('/')
+                                .map(|idx| (&prefix[..idx + 1], &prefix[idx + 1..]))
+                                .unwrap_or(("", prefix.as_str()));
+
+                            let dir_to_join = (dir.len() > 1 && dir.ends_with('/'))
+                                .then(|| &dir[..dir.len() - 1])
+                                .unwrap_or(dir);
+
+                            let target_dir = if !dir.is_empty() {
+                                match root.join(dir_to_join) {
+                                    Ok(d) if d.is_dir().unwrap_or(false) => Some(d),
+                                    _ => None,
+                                }
+                            } else {
+                                Some(root.join("").unwrap())
+                            };
+
+                            let span = to_char_span(span);
+                            let mut file_count = 0;
+                            if let Some(d) = target_dir {
+                                if let Ok(iterator) = d.read_dir() {
+                                    for entry in iterator {
+                                        let name = entry.filename();
+                                        if name.starts_with(file_prefix) {
+                                            let full_completion = format!("{}{}", dir, name);
+                                            suggestions.push(Suggestion {
+                                                name: full_completion.clone(),
+                                                description: Some(arg.desc.clone()),
+                                                is_command: false,
+                                                rendered: full_completion,
+                                                span_start: span.start,
+                                                span_end: span.end,
+                                            });
+                                            file_count += 1;
+                                        }
+                                    }
+                                }
+                            }
+                            web_sys::console::log_1(&JsValue::from_str(&format!(
+                                "[completion] Found {} file suggestions for argument {}",
+                                file_count, arg_index
+                            )));
+                        }
+                        _ => {
+                            // For other types, fall back to file completion
+                            let (dir, file_prefix) = prefix
+                                .rfind('/')
+                                .map(|idx| (&prefix[..idx + 1], &prefix[idx + 1..]))
+                                .unwrap_or(("", prefix.as_str()));
+
+                            let dir_to_join = (dir.len() > 1 && dir.ends_with('/'))
+                                .then(|| &dir[..dir.len() - 1])
+                                .unwrap_or(dir);
+
+                            let target_dir = if !dir.is_empty() {
+                                match root.join(dir_to_join) {
+                                    Ok(d) if d.is_dir().unwrap_or(false) => Some(d),
+                                    _ => None,
+                                }
+                            } else {
+                                Some(root.join("").unwrap())
+                            };
+
+                            let span = to_char_span(span);
+                            if let Some(d) = target_dir {
+                                if let Ok(iterator) = d.read_dir() {
+                                    for entry in iterator {
+                                        let name = entry.filename();
+                                        if name.starts_with(file_prefix) {
+                                            let full_completion = format!("{}{}", dir, name);
+                                            suggestions.push(Suggestion {
+                                                name: full_completion.clone(),
+                                                description: Some(arg.desc.clone()),
+                                                is_command: false,
+                                                rendered: full_completion,
+                                                span_start: span.start,
+                                                span_end: span.end,
+                                            });
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    // Argument index out of range, fall back to file completion
+                    web_sys::console::log_1(&JsValue::from_str(&format!(
+                        "[completion] Argument index {} out of range, using file completion",
+                        arg_index
+                    )));
+                    // Use the same file completion logic as Argument context
+                    let (dir, file_prefix) = prefix
+                        .rfind('/')
+                        .map(|idx| (&prefix[..idx + 1], &prefix[idx + 1..]))
+                        .unwrap_or(("", prefix.as_str()));
+
+                    let dir_to_join = (dir.len() > 1 && dir.ends_with('/'))
+                        .then(|| &dir[..dir.len() - 1])
+                        .unwrap_or(dir);
+
+                    let target_dir = if !dir.is_empty() {
+                        match root.join(dir_to_join) {
+                            Ok(d) if d.is_dir().unwrap_or(false) => Some(d),
+                            _ => None,
+                        }
+                    } else {
+                        Some(root.join("").unwrap())
+                    };
+
+                    let span = to_char_span(span);
+                    if let Some(d) = target_dir {
+                        if let Ok(iterator) = d.read_dir() {
+                            for entry in iterator {
+                                let name = entry.filename();
+                                if name.starts_with(file_prefix) {
+                                    let full_completion = format!("{}{}", dir, name);
+                                    suggestions.push(Suggestion {
+                                        name: full_completion.clone(),
+                                        description: None,
+                                        is_command: false,
+                                        rendered: full_completion,
+                                        span_start: span.start,
+                                        span_end: span.end,
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
+            } else {
+                // No signature found, fall back to file completion
+                web_sys::console::log_1(&JsValue::from_str(&format!(
+                    "[completion] Could not find signature for command: {:?}, using file completion",
+                    command_name
+                )));
+                let (dir, file_prefix) = prefix
+                    .rfind('/')
+                    .map(|idx| (&prefix[..idx + 1], &prefix[idx + 1..]))
+                    .unwrap_or(("", prefix.as_str()));
+
+                let dir_to_join = (dir.len() > 1 && dir.ends_with('/'))
+                    .then(|| &dir[..dir.len() - 1])
+                    .unwrap_or(dir);
+
+                let target_dir = if !dir.is_empty() {
+                    match root.join(dir_to_join) {
+                        Ok(d) if d.is_dir().unwrap_or(false) => Some(d),
+                        _ => None,
+                    }
+                } else {
+                    Some(root.join("").unwrap())
+                };
+
+                let span = to_char_span(span);
+                if let Some(d) = target_dir {
+                    if let Ok(iterator) = d.read_dir() {
+                        for entry in iterator {
+                            let name = entry.filename();
+                            if name.starts_with(file_prefix) {
+                                let full_completion = format!("{}{}", dir, name);
+                                suggestions.push(Suggestion {
+                                    name: full_completion.clone(),
+                                    description: None,
+                                    is_command: false,
+                                    rendered: full_completion,
+                                    span_start: span.start,
+                                    span_end: span.end,
+                                });
+                            }
+                        }
+                    }
+                }
+            }
         }
         _ => {
             web_sys::console::log_1(&JsValue::from_str(
