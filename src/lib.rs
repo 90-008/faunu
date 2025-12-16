@@ -1,16 +1,18 @@
 use jacquard::chrono;
 use miette::Report;
+use nu_cmd_base::hook::eval_hook;
 use nu_cmd_extra::add_extra_command_context;
 use nu_cmd_lang::create_default_context;
 use nu_engine::{command_prelude::*, eval_block};
 use nu_parser::{FlatShape, TokenContents, flatten_block, lex, parse};
 use nu_protocol::{
-    Config, ListStream, PipelineData, Span,
+    Config, ListStream, PipelineData, Signals, Span,
     engine::{Call, EngineState, Stack, StateWorkingSet},
 };
 use serde::Serialize;
 use std::{
     io::Cursor,
+    path::PathBuf,
     sync::{Arc, Mutex, OnceLock},
     time::UNIX_EPOCH,
 };
@@ -32,10 +34,38 @@ use crate::{
     },
     default_context::add_shell_command_context,
     error::format_error,
-    globals::{apply_pending_deltas, current_time, get_pwd, print_to_console},
+    globals::{
+        InterruptBool, apply_pending_deltas, current_time, get_pwd, print_to_console, set_interrupt,
+    },
 };
 use error::CommandError;
 use globals::get_vfs;
+
+#[wasm_bindgen]
+extern "C" {
+    #[wasm_bindgen(js_namespace = console)]
+    fn error(msg: String);
+
+    type Error;
+
+    #[wasm_bindgen(constructor)]
+    fn new() -> Error;
+
+    #[wasm_bindgen(structural, method, getter)]
+    fn stack(error: &Error) -> String;
+}
+
+fn panic_hook(info: &std::panic::PanicHookInfo) {
+    let mut msg = info.to_string();
+
+    msg.push_str("\n\nStack:\n\n");
+    let e = Error::new();
+    let stack = e.stack();
+    msg.push_str(&stack);
+    msg.push_str("\n\n");
+
+    let _ = print_to_console(&msg, false);
+}
 
 static ENGINE_STATE: OnceLock<Mutex<EngineState>> = OnceLock::new();
 static STACK: OnceLock<Mutex<Stack>> = OnceLock::new();
@@ -110,7 +140,10 @@ ls --help"#;
     let mut config = Config::default();
     config.use_ansi_coloring = true.into();
     config.show_banner = nu_protocol::BannerKind::Full;
+    config.hooks.display_output = Some("table".into_value(Span::unknown()));
     engine_state.config = Arc::new(config);
+
+    engine_state.set_signals(Signals::new(Arc::new(InterruptBool)));
 
     ENGINE_STATE
         .set(Mutex::new(engine_state))
@@ -126,7 +159,7 @@ ls --help"#;
 
 #[wasm_bindgen]
 pub fn init_engine() -> String {
-    console_error_panic_hook::set_once();
+    std::panic::set_hook(Box::new(panic_hook));
     init_engine_internal().map_or_else(|err| format!("error: {err}"), |_| String::new())
 }
 
@@ -140,11 +173,8 @@ fn run_command_internal(
         error: Report::new(e),
         start_offset: 0,
     })?;
-    // set PWD
-    engine_state.add_env_var(
-        "PWD".to_string(),
-        get_pwd_string().into_value(Span::unknown()),
-    );
+    let pwd = get_pwd_string().into_value(Span::unknown());
+    engine_state.add_env_var("PWD".to_string(), pwd.clone());
 
     let mut working_set = StateWorkingSet::new(engine_state);
     let start_offset = working_set.next_span_start();
@@ -220,34 +250,37 @@ fn run_command_internal(
         x => x,
     };
 
-    // TODO: idk what this does i copied it from PipelineData::print_table
-    // dunno if it matters, we can just use nu_command::Table and it works fine i think
-    let table_command = engine_state
-        .table_decl_id
-        .map(|decl_id| engine_state.get_decl(decl_id))
-        .filter(|command| command.block_id().is_some())
-        .unwrap_or(&nu_command::Table);
-    let call = Call::new(pipeline_data.span().unwrap_or_else(Span::unknown));
-
-    let res = table_command
-        .run(engine_state, stack, &call, pipeline_data)
-        .map_err(cmd_err)?;
+    let conf = stack.get_config(engine_state);
+    let hook = conf.hooks.display_output.as_ref();
+    let res = eval_hook(
+        engine_state,
+        stack,
+        Some(pipeline_data),
+        vec![],
+        hook.unwrap(),
+        "display_output",
+    )
+    .map_err(cmd_err)?;
 
     match res {
         PipelineData::Empty => {}
         PipelineData::Value(v, _) => {
             print_to_console(&v.to_expanded_string("\n", &engine_state.config), true)
+                .map_err(cmd_err)?;
         }
         PipelineData::ByteStream(s, _) => {
             for line in s.lines().into_iter().flatten() {
                 let out = line.map_err(cmd_err)?; // TODO: do we turn this into a Value ??? or is returning err fine
-                print_to_console(&out, true);
+                print_to_console(&out, true).map_err(cmd_err)?;
             }
         }
         PipelineData::ListStream(s, _) => {
             for item in s.into_iter() {
-                let out = item.to_expanded_string("\n", &engine_state.config);
-                print_to_console(&out, true);
+                let out = item
+                    .unwrap_error()
+                    .map_err(cmd_err)?
+                    .to_expanded_string("\n", &engine_state.config);
+                print_to_console(&out, true).map_err(cmd_err)?;
             }
         }
     }
@@ -266,6 +299,7 @@ pub fn run_command(input: &str) -> Option<String> {
         STACK.get().unwrap().lock().expect("stack initialized"),
     );
 
+    set_interrupt(false);
     match run_command_internal(&mut engine_guard, &mut stack_guard, input) {
         Ok(_) => None,
         Err(cmd_err) => Some(format_error(
@@ -285,4 +319,14 @@ pub fn get_pwd_string() -> String {
         return "/".to_string();
     }
     pwd.as_str().to_string()
+}
+
+pub fn get_pwd_buf() -> PathBuf {
+    // web_sys::console::log_1(&"before pwd".into());
+    let pwd = get_pwd();
+    // web_sys::console::log_1(&"after pwd".into());
+    if pwd.is_root() {
+        return PathBuf::new().join("/");
+    }
+    pwd.as_str().into()
 }

@@ -6,6 +6,7 @@ import init, {
   get_pwd_string,
   register_console_callback,
   register_task_count_callback,
+  set_interrupt_buffer,
 } from "../../pkg";
 
 // Initialize WASM
@@ -30,6 +31,9 @@ self.onmessage = (e) => {
   try {
     let result;
     switch (type) {
+      case "set-interrupt-buffer":
+        set_interrupt_buffer(payload);
+        break;
       case "run":
         result = run_command(payload);
         break;

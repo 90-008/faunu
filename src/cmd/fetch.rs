@@ -180,7 +180,7 @@ impl Command for Fetch {
                     match result {
                         Ok(_) => {}
                         Err(e) => {
-                            print_to_console(
+                            let _ = print_to_console(
                                 &format!("\x1b[31m✖\x1b[0m ({task_desc}) error: {e}"),
                                 false,
                             );

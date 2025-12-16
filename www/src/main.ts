@@ -23,6 +23,9 @@ type Candidate = {
 type SearchState = "history" | "completion" | "none";
 
 async function bootstrap() {
+  const sab = new SharedArrayBuffer(4);
+  const interruptBuffer = new Int32Array(sab);
+
   // Instantiate the worker using the imported class
   const worker = new DysnomiaWorker();
 
@@ -448,6 +451,7 @@ async function bootstrap() {
         break;
 
       case "\u0003": // Ctrl+C
+        Atomics.store(interruptBuffer, 0, 1);
         currentLine = "";
         cursorPos = 0;
         completionCandidates = [];
@@ -641,6 +645,7 @@ async function bootstrap() {
 
   await readyPromise;
 
+  await callWorker("set-interrupt-buffer", interruptBuffer);
   await callWorker("run", "open welcome.txt");
 
   term.write(getPrompt());

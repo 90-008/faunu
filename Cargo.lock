@@ -74,9 +74,9 @@ checksum = "683d7910e743518b0e34f1186f92494becacb047c7b6bf616c96772180fef923"
 
 [[package]]
 name = "alphanumeric-sort"
-version = "1.5.4"
+version = "1.5.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ab31f79a61d3c25cae1d6734a386662e5cf1b6ba5a9720c135b609273c058c15"
+checksum = "774ffdfeac16e9b4d75e41225dc2545d9c2082a0634b5d7f6f70e168546eecb1"
 
 [[package]]
 name = "android_system_properties"
@@ -394,17 +394,6 @@ checksum = "874bb8112abecc98cbd6d81ea4fa7e94fb9449648c93cc89aa40c81c24d7de03"
 dependencies = [
  "alloc-no-stdlib",
  "alloc-stdlib",
-]
-
-[[package]]
-name = "bstr"
-version = "1.12.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "63044e1ae8e69f3b5a92c736ca6269b8d12fa7efe39bf34ddb06d102cf0e2cab"
-dependencies = [
- "memchr",
- "regex-automata",
- "serde",
 ]
 
 [[package]]
@@ -1348,11 +1337,13 @@ dependencies = [
  "jacquard-repo",
  "js-sys",
  "miette",
+ "nu-cmd-base",
  "nu-cmd-extra",
  "nu-cmd-lang",
  "nu-command",
  "nu-engine",
  "nu-parser",
+ "nu-path",
  "nu-protocol",
  "rapidhash",
  "reqwest",
@@ -2971,9 +2962,8 @@ dependencies = [
 
 [[package]]
 name = "nu-cmd-base"
-version = "0.109.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2460ee389a43b935aa18ef5ed9fa8275bdf617e8c05eba7c2b82f92effd2132b"
+version = "0.109.2"
+source = "git+https://github.com/90-008/nushell#db3f8b1979bc9bfc6b4b54046804db9c1709eaa0"
 dependencies = [
  "indexmap 2.12.1",
  "miette",
@@ -2985,9 +2975,8 @@ dependencies = [
 
 [[package]]
 name = "nu-cmd-extra"
-version = "0.109.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "96f1ac416cd5182ca427a1007c9d0193feaa746aeb54b5320251faad41481cfe"
+version = "0.109.2"
+source = "git+https://github.com/90-008/nushell#db3f8b1979bc9bfc6b4b54046804db9c1709eaa0"
 dependencies = [
  "fancy-regex",
  "heck 0.5.0",
@@ -3010,9 +2999,8 @@ dependencies = [
 
 [[package]]
 name = "nu-cmd-lang"
-version = "0.109.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5b266674d87b816264f6aff8cca351e6ebb156f34faab45d7d728c2aba005495"
+version = "0.109.2"
+source = "git+https://github.com/90-008/nushell#db3f8b1979bc9bfc6b4b54046804db9c1709eaa0"
 dependencies = [
  "itertools 0.14.0",
  "nu-cmd-base",
@@ -3026,9 +3014,8 @@ dependencies = [
 
 [[package]]
 name = "nu-color-config"
-version = "0.109.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "440a59265caf5468af6ff186e656bc6e6d349c08662ee959b116375597864206"
+version = "0.109.2"
+source = "git+https://github.com/90-008/nushell#db3f8b1979bc9bfc6b4b54046804db9c1709eaa0"
 dependencies = [
  "nu-ansi-term",
  "nu-engine",
@@ -3039,9 +3026,8 @@ dependencies = [
 
 [[package]]
 name = "nu-command"
-version = "0.109.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5380a9cf6ef0f482280b71d6e78fa8d4bc1b2b43aa8f0b1fa786f96087c2d500"
+version = "0.109.2"
+source = "git+https://github.com/90-008/nushell#db3f8b1979bc9bfc6b4b54046804db9c1709eaa0"
 dependencies = [
  "alphanumeric-sort",
  "base64",
@@ -3098,7 +3084,7 @@ dependencies = [
  "pathdiff",
  "percent-encoding",
  "print-positions",
- "procfs 0.17.0",
+ "procfs",
  "quick-xml 0.38.4",
  "rayon",
  "rmp",
@@ -3129,9 +3115,8 @@ dependencies = [
 
 [[package]]
 name = "nu-derive-value"
-version = "0.109.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1465d2d3ada6004cb6689f269a08c70ba81056231e2b5392d1e0ccf5825f81cb"
+version = "0.109.2"
+source = "git+https://github.com/90-008/nushell#db3f8b1979bc9bfc6b4b54046804db9c1709eaa0"
 dependencies = [
  "heck 0.5.0",
  "proc-macro-error2",
@@ -3142,9 +3127,8 @@ dependencies = [
 
 [[package]]
 name = "nu-engine"
-version = "0.109.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b3b777faf7c5180fe5d7f67d83c44fd14138d91f2938a36494ed6ac66b7160f3"
+version = "0.109.2"
+source = "git+https://github.com/90-008/nushell#db3f8b1979bc9bfc6b4b54046804db9c1709eaa0"
 dependencies = [
  "fancy-regex",
  "log",
@@ -3157,9 +3141,8 @@ dependencies = [
 
 [[package]]
 name = "nu-experimental"
-version = "0.109.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "73dd212a1afdad646a38c00579a0988264880aeb97fee820b349a28cdcc04df2"
+version = "0.109.2"
+source = "git+https://github.com/90-008/nushell#db3f8b1979bc9bfc6b4b54046804db9c1709eaa0"
 dependencies = [
  "itertools 0.14.0",
  "thiserror 2.0.17",
@@ -3167,15 +3150,13 @@ dependencies = [
 
 [[package]]
 name = "nu-glob"
-version = "0.109.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "15aa2c17078926f14e393b4b708e69f228cb6fd4c81136839bde82772bdde1b5"
+version = "0.109.2"
+source = "git+https://github.com/90-008/nushell#db3f8b1979bc9bfc6b4b54046804db9c1709eaa0"
 
 [[package]]
 name = "nu-json"
-version = "0.109.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7ca63927a3c1c4fb889e80dc5cfbe754daed822a7b503cc74e600627c2aa8435"
+version = "0.109.2"
+source = "git+https://github.com/90-008/nushell#db3f8b1979bc9bfc6b4b54046804db9c1709eaa0"
 dependencies = [
  "linked-hash-map",
  "nu-utils",
@@ -3186,9 +3167,8 @@ dependencies = [
 
 [[package]]
 name = "nu-parser"
-version = "0.109.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "237172636312c3566272511a00c1dc355202406c376e1546a45a33c65e81babe"
+version = "0.109.2"
+source = "git+https://github.com/90-008/nushell#db3f8b1979bc9bfc6b4b54046804db9c1709eaa0"
 dependencies = [
  "bytesize",
  "chrono",
@@ -3203,9 +3183,8 @@ dependencies = [
 
 [[package]]
 name = "nu-path"
-version = "0.109.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dde9d8ba26f62c07176c0237a36f38ce964ab3a0dcfb6aab1feea7515d1c6594"
+version = "0.109.2"
+source = "git+https://github.com/90-008/nushell#db3f8b1979bc9bfc6b4b54046804db9c1709eaa0"
 dependencies = [
  "dirs",
  "omnipath",
@@ -3215,18 +3194,16 @@ dependencies = [
 
 [[package]]
 name = "nu-pretty-hex"
-version = "0.109.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "02561546604ac4c443bad65d9485ab3965154cad0873340e2e9ebe72d4a18aef"
+version = "0.109.2"
+source = "git+https://github.com/90-008/nushell#db3f8b1979bc9bfc6b4b54046804db9c1709eaa0"
 dependencies = [
  "nu-ansi-term",
 ]
 
 [[package]]
 name = "nu-protocol"
-version = "0.109.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "038943300ca9de0924fef1c795a7dd16ffc67105629477cf163e8ee6bad95ea6"
+version = "0.109.2"
+source = "git+https://github.com/90-008/nushell#db3f8b1979bc9bfc6b4b54046804db9c1709eaa0"
 dependencies = [
  "bytes",
  "chrono",
@@ -3261,9 +3238,8 @@ dependencies = [
 
 [[package]]
 name = "nu-system"
-version = "0.109.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "46be734cc9b19e09a9665769e14360e13e6978490056ba5c8bfad7dd0537ea83"
+version = "0.109.2"
+source = "git+https://github.com/90-008/nushell#db3f8b1979bc9bfc6b4b54046804db9c1709eaa0"
 dependencies = [
  "chrono",
  "itertools 0.14.0",
@@ -3273,7 +3249,7 @@ dependencies = [
  "mach2",
  "nix",
  "ntapi",
- "procfs 0.17.0",
+ "procfs",
  "sysinfo",
  "web-time",
  "windows 0.62.2",
@@ -3281,9 +3257,8 @@ dependencies = [
 
 [[package]]
 name = "nu-table"
-version = "0.109.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "aa96502adbb69c838d8469715327ba2dacf2c4f5254a4cdee7536e2c6849de1d"
+version = "0.109.2"
+source = "git+https://github.com/90-008/nushell#db3f8b1979bc9bfc6b4b54046804db9c1709eaa0"
 dependencies = [
  "fancy-regex",
  "nu-ansi-term",
@@ -3296,9 +3271,8 @@ dependencies = [
 
 [[package]]
 name = "nu-term-grid"
-version = "0.109.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2b6545b361413e88bea37c4b9c7aa97a7fd7a11d84a5d330a72242367fd1d2df"
+version = "0.109.2"
+source = "git+https://github.com/90-008/nushell#db3f8b1979bc9bfc6b4b54046804db9c1709eaa0"
 dependencies = [
  "nu-utils",
  "unicode-width 0.2.2",
@@ -3306,9 +3280,8 @@ dependencies = [
 
 [[package]]
 name = "nu-utils"
-version = "0.109.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3f8eb43c29cc5bce85f87defdadc2cca964fa434d808af37036a7cb78f3c68e9"
+version = "0.109.2"
+source = "git+https://github.com/90-008/nushell#db3f8b1979bc9bfc6b4b54046804db9c1709eaa0"
 dependencies = [
  "byteyarn",
  "crossterm_winapi",
@@ -3398,16 +3371,9 @@ dependencies = [
 ]
 
 [[package]]
-name = "number_prefix"
-version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "830b246a0e5f20af87141b25c173cd1b609bd7779a4617d6ec582abaf90870f3"
-
-[[package]]
 name = "nuon"
-version = "0.109.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f8c4f2e4460a6cf00e50cddf0840f954874d645be3af5196c5858c70c069d8c0"
+version = "0.109.2"
+source = "git+https://github.com/90-008/nushell#db3f8b1979bc9bfc6b4b54046804db9c1709eaa0"
 dependencies = [
  "nu-engine",
  "nu-parser",
@@ -3963,21 +3929,8 @@ dependencies = [
  "chrono",
  "flate2",
  "hex",
- "procfs-core 0.17.0",
+ "procfs-core",
  "rustix 0.38.44",
-]
-
-[[package]]
-name = "procfs"
-version = "0.18.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "25485360a54d6861439d60facef26de713b1e126bf015ec8f98239467a2b82f7"
-dependencies = [
- "bitflags",
- "chrono",
- "flate2",
- "procfs-core 0.18.0",
- "rustix 1.1.2",
 ]
 
 [[package]]
@@ -3985,17 +3938,6 @@ name = "procfs-core"
 version = "0.17.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "239df02d8349b06fc07398a3a1697b06418223b1c7725085e801e7c0fc6a12ec"
-dependencies = [
- "bitflags",
- "chrono",
- "hex",
-]
-
-[[package]]
-name = "procfs-core"
-version = "0.18.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e6401bf7b6af22f78b563665d15a22e9aef27775b79b149a66ca022468a4e405"
 dependencies = [
  "bitflags",
  "chrono",
@@ -4278,9 +4220,9 @@ checksum = "7a2d987857b319362043e95f5353c0535c1f58eec5336fdfcf626430af7def58"
 
 [[package]]
 name = "reqwest"
-version = "0.12.25"
+version = "0.12.26"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b6eff9328d40131d43bd911d42d79eb6a47312002a4daefc9e37f17e74a7701a"
+checksum = "3b4c14b2d9afca6a60277086b0cc6a6ae0b568f6f7916c943a8cdc79f8be240f"
 dependencies = [
  "base64",
  "bytes",
@@ -4471,9 +4413,9 @@ dependencies = [
 
 [[package]]
 name = "rustls"
-version = "0.23.28"
+version = "0.23.35"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7160e3e10bf4535308537f3c4e1641468cd0e485175d6163087c0393c7d46643"
+checksum = "533f54bc6a7d4f647e46ad909549eda97bf5afc1585190ef692b4286b198bd8f"
 dependencies = [
  "once_cell",
  "ring",
@@ -5736,21 +5678,18 @@ checksum = "06abde3611657adf66d383f00b093d7faecc7fa57071cce2578660c9f1010821"
 
 [[package]]
 name = "uucore"
-version = "0.4.0"
+version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2003164a38a7f39da1de103a70fa66b745f572f0045ec261481539516c0a8a0e"
+checksum = "b5eddd390f3fdef74f104a948559e6de29203f60f8f563c8c9f528cd4c88ee78"
 dependencies = [
- "bstr",
  "clap",
  "fluent",
  "fluent-bundle",
  "fluent-syntax",
  "libc",
  "nix",
- "number_prefix",
  "os_display",
  "phf 0.13.1",
- "procfs 0.18.0",
  "thiserror 2.0.17",
  "unic-langid",
  "uucore_procs",
@@ -5759,9 +5698,9 @@ dependencies = [
 
 [[package]]
 name = "uucore_procs"
-version = "0.4.0"
+version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c76f0308f7810d915246a39748e7f5d64e43e6bb9d6c8107224f9d741aefc375"
+checksum = "47148309a1f7a989d165dabbbc7f2bf156d7ff6affe7d69c1c5bfb822e663ae6"
 dependencies = [
  "proc-macro2",
  "quote",

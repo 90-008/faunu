@@ -1,6 +1,6 @@
 use futures::stream::AbortHandle;
 use nu_protocol::{
-    ShellError, Span,
+    ShellError, Signal, Span,
     engine::{EngineState, StateDelta},
 };
 use std::{
@@ -171,7 +171,12 @@ pub fn register_console_callback(f: js_sys::Function) {
     }
 }
 
-pub fn print_to_console(msg: &str, is_cmd: bool) {
+pub fn print_to_console(msg: &str, is_cmd: bool) -> Result<(), ShellError> {
+    // if is_interrupted() {
+    //     return Err(ShellError::Interrupted {
+    //         span: Span::unknown(),
+    //     });
+    // }
     if let Some(mutex) = CONSOLE_CALLBACK.get() {
         if let Ok(guard) = mutex.lock() {
             if let Some(cb) = guard.as_ref() {
@@ -182,8 +187,64 @@ pub fn print_to_console(msg: &str, is_cmd: bool) {
             }
         }
     }
+    Ok(())
 }
 
 pub fn current_time() -> Option<SystemTime> {
     UNIX_EPOCH.checked_add(Duration::from_millis(js_sys::Date::now() as u64))
+}
+
+use js_sys::Int32Array;
+use std::cell::RefCell;
+
+// We use thread_local storage because the Wasm worker is single-threaded.
+// This holds the reference to the SharedArrayBuffer view passed from JS.
+thread_local! {
+    pub static INTERRUPT_BUFFER: RefCell<Option<Int32Array>> = RefCell::new(None);
+}
+
+/// Called from JS to pass the SharedArrayBuffer view
+#[wasm_bindgen]
+pub fn set_interrupt_buffer(buffer: Int32Array) {
+    INTERRUPT_BUFFER.with(|b| {
+        *b.borrow_mut() = Some(buffer);
+    });
+}
+
+/// Call this function periodically in your long-running loops!
+/// Returns `true` if an interrupt was requested.
+pub fn check_interrupt() -> bool {
+    INTERRUPT_BUFFER.with(|b| {
+        if let Some(buffer) = b.borrow().as_ref() {
+            // Check index 0. If it's 1, an interrupt occurred.
+            // We use Atomics to ensure we see the value written by the main thread.
+            match js_sys::Atomics::load(buffer, 0) {
+                Ok(1) => true,
+                _ => false,
+            }
+        } else {
+            false
+        }
+    })
+}
+
+pub fn set_interrupt(value: bool) {
+    INTERRUPT_BUFFER.with(|b| {
+        if let Some(buffer) = b.borrow().as_ref() {
+            let _ = js_sys::Atomics::store(buffer, 0, value as i32);
+        }
+    });
+}
+
+pub struct InterruptBool;
+
+impl Signal for InterruptBool {
+    #[inline]
+    fn get(&self) -> bool {
+        check_interrupt()
+    }
+    #[inline]
+    fn set(&self, value: bool) {
+        set_interrupt(value);
+    }
 }

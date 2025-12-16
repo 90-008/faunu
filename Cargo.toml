@@ -12,12 +12,14 @@ wasm-bindgen-futures = "0.4"
 getrandom = { version = "0.3", features = ["wasm_js"] }
 web-sys = { version = "0.3", features = ["console", "Window"] }
 vfs = { version = "0.12" }
-nu-cmd-lang = { version = "0.109.1", default-features = false }
-nu-command = { version = "0.109.1", default-features = false }
-nu-engine = { version = "0.109.1", default-features = false }
-nu-parser = { version = "0.109.1", default-features = false }
-nu-protocol = { version = "0.109.1", default-features = false }
-nu-cmd-extra = { version = "0.109.1", default-features = false }
+nu-command = { git = "https://github.com/90-008/nushell", default-features = false }
+nu-engine = { git = "https://github.com/90-008/nushell", default-features = false }
+nu-parser = { git = "https://github.com/90-008/nushell", default-features = false }
+nu-protocol = { git = "https://github.com/90-008/nushell", default-features = false }
+nu-path = { git = "https://github.com/90-008/nushell", default-features = false }
+nu-cmd-base = { git = "https://github.com/90-008/nushell", default-features = false }
+nu-cmd-lang = { git = "https://github.com/90-008/nushell", default-features = false }
+nu-cmd-extra = { git = "https://github.com/90-008/nushell", default-features = false }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1"
 miette = { version = "7.6", features = ["fancy"] }
@@ -44,3 +46,4 @@ opt-level = 3
 lto = true
 codegen-units = 1
 strip = true
+debug-assertions = false
