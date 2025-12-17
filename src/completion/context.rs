@@ -183,12 +183,64 @@ pub fn handle_block_or_closure(
         );
 
         if is_empty {
-            // Empty block/closure or just whitespace - command context
-            console_log!("[completion] {shape_name} is empty, setting Command context");
-            Some(CompletionContext::Command {
-                prefix: String::new(),
-                span: adjusted_span,
-            })
+            // Empty block/closure or just whitespace
+            // Check if there's a command shape before this closure/block shape
+            // If so, we might be completing after that command
+            let mut found_command: Option<String> = None;
+            for i in (0..current_idx).rev() {
+                if let Some((prev_span, prev_shape)) = shapes.get(i) {
+                    let prev_local_span = to_local_span(*prev_span, global_offset);
+                    // Check if this shape is before the current closure and is a command
+                    if prev_local_span.end <= local_span.start {
+                        if is_command_shape(input, prev_shape, prev_local_span) {
+                            let cmd_text = safe_slice(input, prev_local_span);
+                            let cmd_full = cmd_text.trim().to_string();
+
+                            // Extract the full command text - if it contains spaces, it might be a subcommand
+                            // We'll use the first word for parent_command to show subcommands
+                            // The suggestion generator will filter appropriately
+                            let cmd_first_word = extract_command_name(cmd_text).to_string();
+
+                            // If the command contains spaces, it's likely a full command (subcommand)
+                            // In that case, we shouldn't show subcommands
+                            if cmd_full.contains(' ') && cmd_full != cmd_first_word {
+                                // It's a full command (subcommand), don't show subcommands
+                                console_log!(
+                                    "[completion] {shape_name} is empty but found full command {cmd_full:?} before it, not showing completions"
+                                );
+                                return None;
+                            }
+
+                            // Use the first word to show subcommands
+                            found_command = Some(cmd_first_word);
+                            console_log!(
+                                "[completion] {shape_name} is empty but found command {found_command:?} before it"
+                            );
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if let Some(cmd_name) = found_command {
+                // We found a command before the closure, show subcommands of that command
+                console_log!(
+                    "[completion] {shape_name} is empty, showing subcommands of {cmd_name:?}"
+                );
+                Some(CompletionContext::Command {
+                    prefix: String::new(),
+                    span: adjusted_span,
+                    parent_command: Some(cmd_name),
+                })
+            } else {
+                // Truly empty - show all commands
+                console_log!("[completion] {shape_name} is empty, setting Command context");
+                Some(CompletionContext::Command {
+                    prefix: String::new(),
+                    span: adjusted_span,
+                    parent_command: None,
+                })
+            }
         } else if let Some(last_sep_pos) = last_sep_pos_in_prefix {
             // After a separator - command context
             let after_sep = prefix[last_sep_pos..].trim_start();
@@ -198,6 +250,7 @@ pub fn handle_block_or_closure(
             Some(CompletionContext::Command {
                 prefix: after_sep.to_string(),
                 span: Span::new(span.start + last_sep_pos, span.end),
+                parent_command: None,
             })
         } else {
             console_log!(
@@ -468,6 +521,7 @@ pub fn determine_context_from_shape(
                     return Some(CompletionContext::Command {
                         prefix: String::new(),
                         span: adjusted_span,
+                        parent_command: None,
                     });
                 }
             } else {
@@ -559,6 +613,7 @@ pub fn determine_context_from_shape(
                         return Some(CompletionContext::Command {
                             prefix: full_prefix,
                             span: full_span,
+                            parent_command: None,
                         });
                     }
                     FlatShape::Block | FlatShape::Closure => {
@@ -696,9 +751,10 @@ pub fn determine_context_fallback(
                     "[completion] Found command shape {shape:?} at {local_span:?}, has_separator_after_command={has_separator_after_command}"
                 );
                 if !has_separator_after_command {
-                    // Extract the command text
+                    // Extract the command text (full command including subcommands)
                     let cmd = safe_slice(input, local_span);
-                    let cmd_name = extract_command_name(cmd).to_string();
+                    let cmd_full = cmd.trim().to_string();
+                    let cmd_first_word = extract_command_name(cmd).to_string();
 
                     // Check if we're right after the command (only whitespace between command and cursor)
                     let text_after_command = if local_span.end < input.len() {
@@ -710,6 +766,19 @@ pub fn determine_context_fallback(
 
                     // If we're right after a command, check if it has positional arguments
                     if is_right_after_command {
+                        // Check if the command text contains spaces (indicating it's a subcommand like "attr category")
+                        let is_subcommand = cmd_full.contains(' ') && cmd_full != cmd_first_word;
+
+                        // First, try the full command name (e.g., "attr category")
+                        // If that doesn't exist, fall back to the first word (e.g., "attr")
+                        let full_cmd_exists =
+                            get_command_signature(engine_guard, &cmd_full).is_some();
+                        let cmd_name = if full_cmd_exists {
+                            cmd_full.clone()
+                        } else {
+                            cmd_first_word.clone()
+                        };
+
                         if let Some(signature) = get_command_signature(engine_guard, &cmd_name) {
                             // Check if command has any positional arguments
                             let has_positional_args = !signature.required_positional.is_empty()
@@ -747,20 +816,45 @@ pub fn determine_context_fallback(
                                     arg_index: arg_count,
                                 });
                             } else {
-                                // No positional arguments, don't show any completions
-                                console_log!(
-                                    "[completion] Command {cmd_name:?} has no positional args, not showing completions"
-                                );
-                                // Leave context as None to show no completions
-                                return None;
+                                // No positional arguments
+                                // If this is a subcommand (contains spaces), don't show subcommands
+                                // Only show subcommands if we're using just the base command (single word)
+                                if is_subcommand && full_cmd_exists {
+                                    console_log!(
+                                        "[completion] Command {cmd_name:?} is a subcommand with no positional args, not showing completions"
+                                    );
+                                    return None;
+                                } else {
+                                    // Show subcommands of the base command
+                                    console_log!(
+                                        "[completion] Command {cmd_name:?} has no positional args, showing subcommands"
+                                    );
+                                    return Some(CompletionContext::Command {
+                                        prefix: String::new(),
+                                        span: Span::new(byte_pos, byte_pos),
+                                        parent_command: Some(cmd_first_word),
+                                    });
+                                }
                             }
                         } else {
-                            // Couldn't find signature, don't show completions
-                            console_log!(
-                                "[completion] Could not find signature for {cmd_name:?}, not showing completions"
-                            );
-                            // Leave context as None to show no completions
-                            return None;
+                            // Couldn't find signature
+                            // If this is a subcommand, don't show completions
+                            // Otherwise, show subcommands of the first word
+                            if is_subcommand && full_cmd_exists {
+                                console_log!(
+                                    "[completion] Could not find signature for subcommand {cmd_name:?}, not showing completions"
+                                );
+                                return None;
+                            } else {
+                                console_log!(
+                                    "[completion] Could not find signature for {cmd_name:?}, showing subcommands"
+                                );
+                                return Some(CompletionContext::Command {
+                                    prefix: String::new(),
+                                    span: Span::new(byte_pos, byte_pos),
+                                    parent_command: Some(cmd_first_word),
+                                });
+                            }
                         }
                     } else {
                         // Not right after command, complete the command itself
@@ -768,6 +862,7 @@ pub fn determine_context_fallback(
                         return Some(CompletionContext::Command {
                             prefix: cmd.to_string(),
                             span: local_span,
+                            parent_command: None,
                         });
                     }
                 }
@@ -827,6 +922,7 @@ pub fn determine_context_fallback(
         Some(CompletionContext::Command {
             prefix: last_word.to_string(),
             span: Span::new(last_word_start, byte_pos),
+            parent_command: None,
         })
     } else {
         // Check if this is a variable or cell path (starts with $)

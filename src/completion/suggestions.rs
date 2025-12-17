@@ -12,26 +12,59 @@ pub fn generate_command_suggestions(
     working_set: &StateWorkingSet,
     prefix: String,
     span: Span,
+    parent_command: Option<String>,
 ) -> Vec<Suggestion> {
-    console_log!("[completion] Generating Command suggestions with prefix: {prefix:?}");
-    // Command completion
-    let cmds =
-        working_set.find_commands_by_predicate(|value| value.starts_with(prefix.as_bytes()), true);
+    console_log!(
+        "[completion] Generating Command suggestions with prefix: {prefix:?}, parent_command: {parent_command:?}"
+    );
 
     let span = to_char_span(input, span);
     let mut suggestions = Vec::new();
     let mut cmd_count = 0;
 
+    // Determine search prefix and name extraction logic
+    let (search_prefix, parent_prefix_opt) = if let Some(parent) = &parent_command {
+        // Show only subcommands of the parent command
+        // Subcommands are commands that start with "parent_command " (with space)
+        let parent_prefix = format!("{} ", parent);
+        let search_prefix = if prefix.is_empty() {
+            parent_prefix.clone()
+        } else {
+            format!("{}{}", parent_prefix, prefix)
+        };
+        (search_prefix, Some(parent_prefix))
+    } else {
+        // Regular command completion - show all commands
+        (prefix.clone(), None)
+    };
+
+    let cmds = working_set
+        .find_commands_by_predicate(|value| value.starts_with(search_prefix.as_bytes()), true);
+
     for (_, name, desc, _) in cmds {
         let name_str = String::from_utf8_lossy(&name).to_string();
+
+        // Extract the command name to display
+        // For subcommands, extract just the subcommand name (part after "parent_command ")
+        // For regular commands, use the full command name
+        let display_name = if let Some(parent_prefix) = &parent_prefix_opt {
+            if let Some(subcommand_name) = name_str.strip_prefix(parent_prefix) {
+                subcommand_name.to_string()
+            } else {
+                continue; // Skip if it doesn't match the parent prefix
+            }
+        } else {
+            name_str
+        };
+
         suggestions.push(Suggestion {
             rendered: {
-                let name_colored = ansi_term::Color::Green.bold().paint(&name_str);
+                let name_colored = ansi_term::Color::Green.bold().paint(&display_name);
                 let desc_str = desc.as_deref().unwrap_or("<no description>");
                 format!("{name_colored} {desc_str}")
             },
-            name: name_str,
-            description: desc,
+            name: display_name,
+            description: desc.map(|d| d.to_string()),
             is_command: true,
             span_start: span.start,
             span_end: span.end,
@@ -120,16 +153,28 @@ pub fn generate_flag_suggestions(
 
                 // Add short flag if it matches
                 if let Some(short) = &short_name {
+                    let flag_char = flag.short.unwrap_or(' ');
                     let should_show_short = if show_all {
                         true // Show all flags when prefix is "-" or empty
                     } else if prefix.starts_with("-") && !prefix.starts_with("--") {
-                        short.starts_with(&prefix) // Only show short flags matching prefix
+                        // For combined short flags like "-a" or "-af", suggest flags that can be appended
+                        // Extract already used flags from prefix (e.g., "-a" -> ['a'], "-af" -> ['a', 'f'])
+                        let used_flags: Vec<char> = prefix[1..].chars().collect();
+
+                        // Show if this flag isn't already in the prefix
+                        !used_flags.contains(&flag_char)
                     } else {
                         false // Don't show short flags if prefix is long flag format
                     };
 
                     if should_show_short {
-                        suggestions.push(create_flag_suggestion(short.clone()));
+                        // If prefix already contains flags (like "-a"), create combined suggestion (like "-af")
+                        let suggestion_name = if prefix.len() > 1 && prefix.starts_with("-") {
+                            format!("{}{}", prefix, flag_char)
+                        } else {
+                            short.clone()
+                        };
+                        suggestions.push(create_flag_suggestion(suggestion_name));
                         flag_count += 1;
                     }
                 }
@@ -146,6 +191,7 @@ pub fn generate_flag_suggestions(
 pub fn generate_command_argument_suggestions(
     input: &str,
     engine_guard: &EngineState,
+    working_set: &StateWorkingSet,
     prefix: String,
     span: Span,
     command_name: String,
@@ -158,14 +204,110 @@ pub fn generate_command_argument_suggestions(
 
     let mut suggestions = Vec::new();
     if let Some(signature) = get_command_signature(engine_guard, &command_name) {
+        // First, check if we're completing an argument for a flag
+        // Look backwards from the current position to find the previous flag
+        let text_before = if span.start < input.len() {
+            &input[..span.start]
+        } else {
+            ""
+        };
+        let text_before_trimmed = text_before.trim_end();
+
+        // Check if the last word before cursor is a flag
+        let last_word_start = text_before_trimmed
+            .rfind(|c: char| c.is_whitespace())
+            .map(|i| i + 1)
+            .unwrap_or(0);
+        let last_word = &text_before_trimmed[last_word_start..];
+
+        if last_word.starts_with('-') {
+            // We're after a flag - check if this flag accepts an argument
+            let flag_name = last_word.trim();
+            let is_long_flag = flag_name.starts_with("--");
+            let flag_to_match: Option<(bool, String)> = if is_long_flag {
+                // Long flag: --flag-name
+                flag_name.strip_prefix("--").map(|s| (true, s.to_string()))
+            } else {
+                // Short flag: -f (single character)
+                flag_name
+                    .strip_prefix("-")
+                    .and_then(|s| s.chars().next().map(|c| (false, c.to_string())))
+            };
+
+            if let Some((is_long, flag_name_to_match)) = flag_to_match {
+                // Find the flag in the signature
+                for flag in &signature.named {
+                    let matches_flag = if is_long {
+                        // Long flag
+                        flag.long == flag_name_to_match
+                    } else {
+                        // Short flag - compare character
+                        flag.short
+                            .map(|c| c.to_string() == flag_name_to_match)
+                            .unwrap_or(false)
+                    };
+
+                    if matches_flag {
+                        // Found the flag - check if it accepts an argument
+                        if let Some(flag_arg_shape) = &flag.arg {
+                            // Flag accepts an argument - use its type
+                            console_log!(
+                                "[completion] Flag {flag_name:?} accepts argument of type {:?}",
+                                flag_arg_shape
+                            );
+                            match flag_arg_shape {
+                                nu_protocol::SyntaxShape::Filepath
+                                | nu_protocol::SyntaxShape::Any => {
+                                    // File/directory completion for flag argument
+                                    let file_suggestions = generate_file_suggestions(
+                                        &prefix,
+                                        span,
+                                        root,
+                                        Some(flag.desc.clone()),
+                                        input,
+                                    );
+                                    let file_count = file_suggestions.len();
+                                    suggestions.extend(file_suggestions);
+                                    console_log!(
+                                        "[completion] Found {file_count} file suggestions for flag argument"
+                                    );
+                                }
+                                _ => {
+                                    // Flag argument is not a filepath type
+                                    console_log!(
+                                        "[completion] Flag {flag_name:?} argument is type {:?}, not suggesting files",
+                                        flag_arg_shape
+                                    );
+                                }
+                            }
+                            return suggestions;
+                        } else {
+                            // Flag doesn't accept an argument - fall through to positional argument check
+                            console_log!(
+                                "[completion] Flag {flag_name:?} doesn't accept an argument, checking positional arguments"
+                            );
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Not after a flag, or flag doesn't accept an argument - check positional arguments
         // Get positional arguments from signature
-        // Combine required and optional positional arguments
-        let mut all_positional = Vec::new();
-        all_positional.extend_from_slice(&signature.required_positional);
-        all_positional.extend_from_slice(&signature.optional_positional);
+        // Check if argument is in required or optional positional
+        let required_count = signature.required_positional.len();
+        let is_optional = arg_index >= required_count;
 
         // Find the argument at the given index
-        if let Some(arg) = all_positional.get(arg_index) {
+        let arg = if arg_index < signature.required_positional.len() {
+            signature.required_positional.get(arg_index)
+        } else {
+            let optional_index = arg_index - required_count;
+            signature.optional_positional.get(optional_index)
+        };
+
+        if let Some(arg) = arg {
             // Check the SyntaxShape to determine completion type
             // Only suggest files/dirs for Filepath type (or "any" when type is unknown)
             match &arg.shape {
@@ -183,6 +325,26 @@ pub fn generate_command_argument_suggestions(
                     console_log!(
                         "[completion] Found {file_count} file suggestions for argument {arg_index}"
                     );
+
+                    // If the argument is optional and of type Any or Filepath, also show subcommands
+                    if is_optional {
+                        console_log!(
+                            "[completion] Argument {arg_index} is optional and of type {:?}, also showing subcommands",
+                            arg.shape
+                        );
+                        let subcommand_suggestions = generate_command_suggestions(
+                            input,
+                            working_set,
+                            prefix.clone(),
+                            span,
+                            Some(command_name.clone()),
+                        );
+                        let subcommand_count = subcommand_suggestions.len();
+                        suggestions.extend(subcommand_suggestions);
+                        console_log!(
+                            "[completion] Found {subcommand_count} subcommand suggestions"
+                        );
+                    }
                 }
                 _ => {
                     // For other types, don't suggest files
@@ -193,13 +355,11 @@ pub fn generate_command_argument_suggestions(
                 }
             }
         } else {
-            // Argument index out of range, fall back to file completion
+            // Argument index out of range - command doesn't accept that many positional arguments
+            // Don't suggest files since we know the type (it's not a valid argument)
             console_log!(
-                "[completion] Argument index {arg_index} out of range, using file completion"
+                "[completion] Argument index {arg_index} out of range, not suggesting files"
             );
-            // Use the same file completion logic as Argument context
-            let file_suggestions = generate_file_suggestions(&prefix, span, root, None, input);
-            suggestions.extend(file_suggestions);
         }
     } else {
         // No signature found, fall back to file completion
@@ -333,9 +493,11 @@ pub fn generate_suggestions(
     console_log!("context: {context:?}");
 
     match context {
-        Some(CompletionContext::Command { prefix, span }) => {
-            generate_command_suggestions(input, working_set, prefix, span)
-        }
+        Some(CompletionContext::Command {
+            prefix,
+            span,
+            parent_command,
+        }) => generate_command_suggestions(input, working_set, prefix, span, parent_command),
         Some(CompletionContext::Argument { prefix, span }) => {
             generate_argument_suggestions(input, prefix, span, root)
         }
@@ -352,6 +514,7 @@ pub fn generate_suggestions(
         }) => generate_command_argument_suggestions(
             input,
             engine_guard,
+            working_set,
             prefix,
             span,
             command_name,

@@ -33,6 +33,7 @@ pub enum CompletionContext {
     Command {
         prefix: String,
         span: Span,
+        parent_command: Option<String>, // If Some, only show subcommands of this command
     },
     Argument {
         prefix: String,
