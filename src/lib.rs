@@ -31,7 +31,7 @@ pub mod memory_fs;
 
 use crate::{
     cmd::{
-        Cd, Fetch, Job, JobKill, JobList, Ls, Mkdir, Open, Pwd, Random, Rm, Save, Source, Sys,
+        Cd, Fetch, Job, JobKill, JobList, Ls, Mkdir, Mv, Open, Pwd, Random, Rm, Save, Source, Sys,
         Version,
     },
     default_context::add_shell_command_context,
@@ -134,11 +134,12 @@ ls --help"#;
     write_file("welcome.txt", &welcome_txt)?;
 
     let mut working_set = StateWorkingSet::new(&engine_state);
-    let decls: [Box<dyn Command>; 15] = [
+    let decls: [Box<dyn Command>; 16] = [
         Box::new(Ls),
         Box::new(Open),
         Box::new(Save),
         Box::new(Mkdir),
+        Box::new(Mv),
         Box::new(Pwd),
         Box::new(Cd),
         Box::new(Rm),
