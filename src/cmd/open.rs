@@ -18,7 +18,7 @@ impl Command for Open {
 
     fn signature(&self) -> Signature {
         Signature::build("open")
-            .required("path", SyntaxShape::String, "path to the file")
+            .required("path", SyntaxShape::Filepath, "path to the file")
             .switch(
                 "raw",
                 "output content as raw string/binary without parsing",

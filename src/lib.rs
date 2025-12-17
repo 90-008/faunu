@@ -7,12 +7,11 @@ use nu_cmd_base::hook::eval_hook;
 use nu_cmd_extra::add_extra_command_context;
 use nu_cmd_lang::create_default_context;
 use nu_engine::{command_prelude::*, eval_block};
-use nu_parser::{FlatShape, TokenContents, flatten_block, lex, parse};
+use nu_parser::{FlatShape, flatten_block, parse};
 use nu_protocol::{
     Config, ListStream, PipelineData, Signals, Span,
     engine::{EngineState, Stack, StateWorkingSet},
 };
-use serde::Serialize;
 use std::{
     io::Cursor,
     sync::{Arc, OnceLock},

@@ -22,7 +22,7 @@ impl Command for Ls {
 
     fn signature(&self) -> Signature {
         Signature::build("ls")
-            .optional("path", SyntaxShape::String, "the path to list")
+            .optional("path", SyntaxShape::Filepath, "the path to list")
             .switch(
                 "all",
                 "include hidden paths (that start with a dot)",

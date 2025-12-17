@@ -16,7 +16,7 @@ impl Command for Save {
 
     fn signature(&self) -> Signature {
         Signature::build("save")
-            .required("path", SyntaxShape::String, "path to write the data to")
+            .required("path", SyntaxShape::Filepath, "path to write the data to")
             .input_output_types(vec![(Type::Any, Type::Nothing)])
             .category(Category::FileSystem)
     }
