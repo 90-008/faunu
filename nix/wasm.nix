@@ -29,6 +29,7 @@ let
       outputHashes = {
         "vfs-0.12.1" = "sha256-d249sIYhICdqqb7uoTRyhXAZTCF5zgjfItM4DE7b/gQ=";
         "jacquard-0.9.4" = "sha256-TEu4coueWzzkmFCkGb610Xrly7n8LUGMa5tdde/OElg=";
+        "nu-cmd-base-0.109.2" = "sha256-Q+6PxSmeiV/K6QP0I9xCiqZM37+p+CRLs7LMBUWurPo=";
       };
     };
 
