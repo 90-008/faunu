@@ -1,7 +1,7 @@
 use crate::globals::{get_pwd, get_vfs, set_pwd, to_shell_err};
 use nu_engine::CallExt;
 use nu_protocol::{
-    Category, IntoValue, PipelineData, ShellError, Signature, SyntaxShape,
+    Category, IntoValue, PipelineData, ShellError, Signature, SyntaxShape, Type,
     engine::{Command, EngineState, Stack},
 };
 use std::sync::Arc;
@@ -18,6 +18,7 @@ impl Command for Cd {
     fn signature(&self) -> Signature {
         Signature::build("cd")
             .optional("path", SyntaxShape::String, "the path to change into")
+            .input_output_type(Type::Nothing, Type::Nothing)
             .category(Category::FileSystem)
     }
 

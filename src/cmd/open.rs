@@ -4,7 +4,7 @@ use crate::globals::{get_pwd, to_shell_err};
 use nu_command::{FromCsv, FromJson, FromOds, FromToml, FromTsv, FromXlsx, FromXml, FromYaml};
 use nu_engine::CallExt;
 use nu_protocol::{
-    ByteStream, Category, PipelineData, ShellError, Signature, SyntaxShape,
+    ByteStream, Category, PipelineData, ShellError, Signature, SyntaxShape, Type,
     engine::{Command, EngineState, Stack},
 };
 
@@ -24,6 +24,7 @@ impl Command for Open {
                 "output content as raw string/binary without parsing",
                 Some('r'),
             )
+            .input_output_type(Type::Nothing, Type::one_of([Type::String, Type::Binary]))
             .category(Category::FileSystem)
     }
 

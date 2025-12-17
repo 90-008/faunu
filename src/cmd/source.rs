@@ -2,7 +2,7 @@ use crate::globals::{get_pwd, queue_delta, to_shell_err};
 use nu_engine::{CallExt, command_prelude::IoError, eval_block};
 use nu_parser::parse;
 use nu_protocol::{
-    Category, PipelineData, ShellError, Signature, SyntaxShape,
+    Category, PipelineData, ShellError, Signature, SyntaxShape, Type,
     debugger::WithoutDebug,
     engine::{Command, EngineState, Stack, StateWorkingSet},
 };
@@ -19,6 +19,7 @@ impl Command for Source {
     fn signature(&self) -> Signature {
         Signature::build(self.name())
             .required("filename", SyntaxShape::String, "the file to source")
+            .input_output_type(Type::Nothing, Type::Nothing)
             .category(Category::Core)
     }
 

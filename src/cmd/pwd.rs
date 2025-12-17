@@ -1,4 +1,5 @@
 use crate::globals::get_pwd;
+use nu_protocol::Type;
 use nu_protocol::engine::Call;
 use nu_protocol::{
     Category, IntoPipelineData, PipelineData, ShellError, Signature, Value,
@@ -14,7 +15,9 @@ impl Command for Pwd {
     }
 
     fn signature(&self) -> Signature {
-        Signature::build("pwd").category(Category::FileSystem)
+        Signature::build("pwd")
+            .input_output_type(Type::Nothing, Type::String)
+            .category(Category::FileSystem)
     }
 
     fn description(&self) -> &str {

@@ -1,5 +1,6 @@
 use js_sys::Reflect;
 use js_sys::global;
+use nu_protocol::Type;
 use nu_protocol::{
     Category, IntoPipelineData, PipelineData, Record, ShellError, Signature, Value,
     engine::{Command, EngineState, Stack},
@@ -15,7 +16,9 @@ impl Command for Sys {
     }
 
     fn signature(&self) -> Signature {
-        Signature::build("sys").category(Category::System)
+        Signature::build("sys")
+            .input_output_type(Type::Nothing, Type::record())
+            .category(Category::System)
     }
 
     fn description(&self) -> &str {

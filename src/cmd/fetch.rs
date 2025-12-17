@@ -20,11 +20,11 @@ use jacquard_repo::{
     storage::{BlockStore, MemoryBlockStore},
 };
 use nu_engine::CallExt;
-use nu_protocol::IntoPipelineData;
 use nu_protocol::{
     Category, PipelineData, ShellError, Signature, SyntaxShape, Value,
     engine::{Command, EngineState, Stack},
 };
+use nu_protocol::{IntoPipelineData, Type};
 use std::io::Write;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -47,6 +47,7 @@ impl Command for Fetch {
                 "HTTP URI or AT URI (at://identifier[/collection[/rkey]])",
             )
             .named("output", SyntaxShape::Filepath, "output path", Some('o'))
+            .input_output_type(Type::Nothing, Type::Nothing)
             .category(Category::Network)
     }
 

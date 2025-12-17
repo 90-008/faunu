@@ -1,6 +1,6 @@
 use crate::globals::get_all_tasks;
 use nu_protocol::{
-    Category, ListStream, PipelineData, Record, ShellError, Signature, Value,
+    Category, ListStream, PipelineData, Record, ShellError, Signature, Type, Value,
     engine::{Call, Command, EngineState, Stack},
 };
 
@@ -13,7 +13,9 @@ impl Command for JobList {
     }
 
     fn signature(&self) -> Signature {
-        Signature::build("job list").category(Category::System)
+        Signature::build("job list")
+            .input_output_type(Type::Nothing, Type::record())
+            .category(Category::System)
     }
 
     fn description(&self) -> &str {

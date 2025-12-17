@@ -1,7 +1,7 @@
 use crate::globals::{get_pwd, to_shell_err};
 use nu_engine::CallExt;
 use nu_protocol::{
-    Category, PipelineData, ShellError, Signature, SyntaxShape,
+    Category, PipelineData, ShellError, Signature, SyntaxShape, Type,
     engine::{Command, EngineState, Stack},
 };
 use vfs::VfsFileType;
@@ -26,6 +26,7 @@ impl Command for Rm {
                 "remove directories and their contents recursively",
                 Some('r'),
             )
+            .input_output_type(Type::Nothing, Type::Nothing)
             .category(Category::FileSystem)
     }
 

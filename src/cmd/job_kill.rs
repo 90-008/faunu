@@ -1,7 +1,7 @@
 use crate::globals::kill_task_by_id;
 use nu_engine::CallExt;
 use nu_protocol::{
-    Category, IntoPipelineData, PipelineData, ShellError, Signature, SyntaxShape, Value,
+    Category, IntoPipelineData, PipelineData, ShellError, Signature, SyntaxShape, Type, Value,
     engine::{Call, Command, EngineState, Stack},
 };
 
@@ -16,6 +16,7 @@ impl Command for JobKill {
     fn signature(&self) -> Signature {
         Signature::build("job kill")
             .required("id", SyntaxShape::Int, "id of job to kill")
+            .input_output_type(Type::Nothing, Type::Nothing)
             .category(Category::System)
     }
 

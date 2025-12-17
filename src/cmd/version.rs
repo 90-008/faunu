@@ -1,3 +1,4 @@
+use nu_protocol::Type;
 use nu_protocol::engine::Call;
 use nu_protocol::{
     Category, IntoPipelineData, PipelineData, ShellError, Signature, Value,
@@ -13,7 +14,9 @@ impl Command for Version {
     }
 
     fn signature(&self) -> Signature {
-        Signature::build(self.name()).category(Category::System)
+        Signature::build(self.name())
+            .input_output_type(Type::Nothing, Type::String)
+            .category(Category::System)
     }
 
     fn description(&self) -> &str {

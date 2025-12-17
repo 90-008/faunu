@@ -8,7 +8,7 @@ use crate::globals::{get_pwd, to_shell_err};
 use jacquard::chrono;
 use nu_engine::CallExt;
 use nu_protocol::{
-    Category, ListStream, PipelineData, Record, ShellError, Signature, SyntaxShape, Value,
+    Category, ListStream, PipelineData, Record, ShellError, Signature, SyntaxShape, Type, Value,
     engine::{Command, EngineState, Stack},
 };
 
@@ -34,6 +34,7 @@ impl Command for Ls {
                 Some('l'),
             )
             .switch("full-paths", "display paths as absolute paths", Some('f'))
+            .input_output_type(Type::Nothing, Type::record())
             .category(Category::FileSystem)
     }
 
