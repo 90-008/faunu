@@ -1,8 +1,8 @@
 use futures::FutureExt;
 use js_sys::Promise;
-use wasm_bindgen_futures::future_to_promise;
-use std::collections::HashMap;
 use nu_protocol::{ENV_VARIABLE_ID, IN_VARIABLE_ID, NU_VARIABLE_ID, Value};
+use std::collections::HashMap;
+use wasm_bindgen_futures::future_to_promise;
 
 use super::*;
 
@@ -261,7 +261,7 @@ pub async fn completion_impl(input: String, js_cursor_pos: usize) -> String {
                 )));
                 // Check if this is a variable or cell path first
                 let trimmed = trimmed_prefix.trim();
-                
+
                 if trimmed.starts_with('$') {
                     // Variable or cell path completion
                     if let Some(dot_pos) = trimmed[1..].find('.') {
@@ -272,20 +272,30 @@ pub async fn completion_impl(input: String, js_cursor_pos: usize) -> String {
                         let (path_so_far, cell_prefix) = if parts.is_empty() {
                             (vec![], String::new())
                         } else if after_var.ends_with('.') {
-                            (parts.iter().filter(|s| !s.is_empty()).map(|s| s.to_string()).collect(), String::new())
+                            (
+                                parts
+                                    .iter()
+                                    .filter(|s| !s.is_empty())
+                                    .map(|s| s.to_string())
+                                    .collect(),
+                                String::new(),
+                            )
                         } else {
-                            let path: Vec<String> = parts[..parts.len().saturating_sub(1)].iter().map(|s| s.to_string()).collect();
+                            let path: Vec<String> = parts[..parts.len().saturating_sub(1)]
+                                .iter()
+                                .map(|s| s.to_string())
+                                .collect();
                             let prefix = parts.last().map(|s| s.to_string()).unwrap_or_default();
                             (path, prefix)
                         };
-                        
+
                         let var_id = match var_name {
                             "env" => Some(ENV_VARIABLE_ID),
                             "nu" => Some(NU_VARIABLE_ID),
                             "in" => Some(IN_VARIABLE_ID),
-                            _ => working_set.find_variable(var_name.as_bytes())
+                            _ => working_set.find_variable(var_name.as_bytes()),
                         };
-                        
+
                         if let Some(var_id) = var_id {
                             let prefix_byte_len = cell_prefix.len();
                             let cell_span_start = adjusted_span.end.saturating_sub(prefix_byte_len);
@@ -329,7 +339,8 @@ pub async fn completion_impl(input: String, js_cursor_pos: usize) -> String {
                     }
                 } else if trimmed.starts_with('-') {
                     // Flag completion
-                    if let Some((cmd_name, _)) = find_command_and_arg_index(current_idx, local_span) {
+                    if let Some((cmd_name, _)) = find_command_and_arg_index(current_idx, local_span)
+                    {
                         web_sys::console::log_1(&JsValue::from_str(&format!(
                             "[completion] {}: Found command {:?} for flag completion",
                             shape_name, cmd_name
@@ -380,7 +391,9 @@ pub async fn completion_impl(input: String, js_cursor_pos: usize) -> String {
 
     // Helper function to evaluate a variable for completion
     // Returns the Value of a variable if it can be evaluated
-    let eval_variable_for_completion = |var_id: nu_protocol::VarId, working_set: &StateWorkingSet| -> Option<Value> {
+    let eval_variable_for_completion = |var_id: nu_protocol::VarId,
+                                        working_set: &StateWorkingSet|
+     -> Option<Value> {
         match var_id {
             id if id == NU_VARIABLE_ID => {
                 // $nu - get from engine state constant
@@ -433,20 +446,20 @@ pub async fn completion_impl(input: String, js_cursor_pos: usize) -> String {
             }
         }
     };
-    
+
     // Helper function to extract column/field names from a Value
     let get_columns_from_value = |value: &Value| -> Vec<(String, Option<String>)> {
         match value {
-            Value::Record { val, .. } => {
-                val.iter()
-                    .map(|(name, v)| (name.to_string(), Some(v.get_type().to_string())))
-                    .collect()
-            }
+            Value::Record { val, .. } => val
+                .iter()
+                .map(|(name, v)| (name.to_string(), Some(v.get_type().to_string())))
+                .collect(),
             Value::List { vals, .. } => {
                 // Get common columns from list of records
                 if let Some(first) = vals.first() {
                     if let Value::Record { val, .. } = first {
-                        return val.iter()
+                        return val
+                            .iter()
                             .map(|(name, v)| (name.to_string(), Some(v.get_type().to_string())))
                             .collect();
                     }
@@ -456,7 +469,7 @@ pub async fn completion_impl(input: String, js_cursor_pos: usize) -> String {
             _ => vec![],
         }
     };
-    
+
     // Helper function to follow a cell path and get the value at that path
     let follow_cell_path = |value: &Value, path: &[String]| -> Option<Value> {
         let mut current = value.clone();
@@ -489,15 +502,15 @@ pub async fn completion_impl(input: String, js_cursor_pos: usize) -> String {
     // We parse the input directly to find closures containing the cursor and extract their parameters
     let extract_closure_params = |input: &str, cursor_pos: usize| -> Vec<String> {
         let mut params = Vec::new();
-        
+
         // Find all closures in the input by looking for {|...| patterns
         // We need to find closures that contain the cursor position
         let mut brace_stack: Vec<usize> = Vec::new(); // Stack of opening brace positions
         let mut closures: Vec<(usize, usize, Vec<String>)> = Vec::new(); // (start, end, params)
-        
+
         let mut i = 0;
         let chars: Vec<char> = input.chars().collect();
-        
+
         while i < chars.len() {
             if chars[i] == '{' {
                 brace_stack.push(i);
@@ -508,21 +521,22 @@ pub async fn completion_impl(input: String, js_cursor_pos: usize) -> String {
                         // Find the parameter list
                         let param_start = start + 2;
                         let mut param_end = param_start;
-                        
+
                         // Find the closing | of the parameter list
                         while param_end < chars.len() && chars[param_end] != '|' {
                             param_end += 1;
                         }
-                        
+
                         if param_end < chars.len() {
                             // Extract parameter names
-                            let params_text: String = chars[param_start..param_end].iter().collect();
+                            let params_text: String =
+                                chars[param_start..param_end].iter().collect();
                             let param_names: Vec<String> = params_text
                                 .split(',')
                                 .map(|s| s.trim().to_string())
                                 .filter(|s| !s.is_empty())
                                 .collect();
-                            
+
                             closures.push((start, i + 1, param_names));
                         }
                     }
@@ -530,7 +544,7 @@ pub async fn completion_impl(input: String, js_cursor_pos: usize) -> String {
             }
             i += 1;
         }
-        
+
         // Find closures that contain the cursor position
         // A closure contains the cursor if: start <= cursor_pos < end
         for (start, end, param_names) in closures {
@@ -542,19 +556,22 @@ pub async fn completion_impl(input: String, js_cursor_pos: usize) -> String {
                 params.extend(param_names);
             }
         }
-        
+
         params
     };
 
     // Helper function to collect variables from working set
-    let collect_variables = |working_set: &StateWorkingSet, input: &str, cursor_pos: usize| -> HashMap<String, nu_protocol::VarId> {
+    let collect_variables = |working_set: &StateWorkingSet,
+                             input: &str,
+                             cursor_pos: usize|
+     -> HashMap<String, nu_protocol::VarId> {
         let mut variables = HashMap::new();
-        
+
         // Add built-in variables
         variables.insert("$nu".to_string(), NU_VARIABLE_ID);
         variables.insert("$in".to_string(), IN_VARIABLE_ID);
         variables.insert("$env".to_string(), ENV_VARIABLE_ID);
-        
+
         // Collect closure parameters at cursor position
         // We don't need real var_ids for closure parameters since they're not evaluated yet
         // We'll use a placeholder var_id (using IN_VARIABLE_ID as a safe placeholder)
@@ -570,7 +587,7 @@ pub async fn completion_impl(input: String, js_cursor_pos: usize) -> String {
                 var_name
             )));
         }
-        
+
         // Collect from working set delta scope
         let mut removed_overlays = vec![];
         for scope_frame in working_set.delta.scope.iter().rev() {
@@ -581,7 +598,7 @@ pub async fn completion_impl(input: String, js_cursor_pos: usize) -> String {
                 }
             }
         }
-        
+
         // Collect from permanent state scope
         for overlay_frame in working_set
             .permanent_state
@@ -593,7 +610,7 @@ pub async fn completion_impl(input: String, js_cursor_pos: usize) -> String {
                 variables.insert(name, *var_id);
             }
         }
-        
+
         variables
     };
 
@@ -624,10 +641,10 @@ pub async fn completion_impl(input: String, js_cursor_pos: usize) -> String {
             span: Span,
         },
         CellPath {
-            prefix: String,       // the partial field name being typed (after the last dot)
-            span: Span,           // replacement span
+            prefix: String,             // the partial field name being typed (after the last dot)
+            span: Span,                 // replacement span
             var_id: nu_protocol::VarId, // variable ID for evaluation
-            path_so_far: Vec<String>, // path members accessed before current one
+            path_so_far: Vec<String>,   // path members accessed before current one
         },
     }
 
@@ -677,6 +694,13 @@ pub async fn completion_impl(input: String, js_cursor_pos: usize) -> String {
             (full_prefix, Span::new(span_start, span_end))
         };
 
+    // Helper function to get command signature (needed for context determination)
+    let get_command_signature = |cmd_name: &str| -> Option<nu_protocol::Signature> {
+        engine_guard
+            .find_decl(cmd_name.as_bytes(), &[])
+            .map(|id| engine_guard.get_decl(id).signature())
+    };
+
     // First, check if cursor is within a shape
     for (idx, (span, shape)) in shapes.iter().enumerate() {
         let local_span = to_local_span(*span);
@@ -721,13 +745,11 @@ pub async fn completion_impl(input: String, js_cursor_pos: usize) -> String {
                 match shape {
                     // Special case: Check if we're completing a cell path where the Variable and field are in separate shapes
                     // e.g., `$a.na` where $a is a Variable shape and `.na` is a String shape
-                    _ if {
-                        idx > 0 && matches!(shape, FlatShape::String)
-                    } => {
+                    _ if { idx > 0 && matches!(shape, FlatShape::String) } => {
                         // Look at the previous shape to see if it's a Variable
                         let prev_shape = &shapes[idx - 1];
                         let prev_local_span = to_local_span(prev_shape.0);
-                        
+
                         if let FlatShape::Variable(var_id) = prev_shape.1 {
                             // Check if the variable shape ends right where this shape starts (or very close)
                             // Allow for a small gap (like a dot) between shapes
@@ -740,13 +762,24 @@ pub async fn completion_impl(input: String, js_cursor_pos: usize) -> String {
                                 let (path_so_far, cell_prefix) = if parts.is_empty() {
                                     (vec![], String::new())
                                 } else if trimmed_prefix.ends_with('.') {
-                                    (parts.iter().filter(|s| !s.is_empty()).map(|s| s.to_string()).collect(), String::new())
+                                    (
+                                        parts
+                                            .iter()
+                                            .filter(|s| !s.is_empty())
+                                            .map(|s| s.to_string())
+                                            .collect(),
+                                        String::new(),
+                                    )
                                 } else {
-                                    let path: Vec<String> = parts[..parts.len().saturating_sub(1)].iter().map(|s| s.to_string()).collect();
-                                    let prefix = parts.last().map(|s| s.to_string()).unwrap_or_default();
+                                    let path: Vec<String> = parts[..parts.len().saturating_sub(1)]
+                                        .iter()
+                                        .map(|s| s.to_string())
+                                        .collect();
+                                    let prefix =
+                                        parts.last().map(|s| s.to_string()).unwrap_or_default();
                                     (path, prefix)
                                 };
-                                
+
                                 let prefix_byte_len = cell_prefix.len();
                                 let cell_span_start = span.end.saturating_sub(prefix_byte_len);
                                 web_sys::console::log_1(&JsValue::from_str(&format!(
@@ -760,12 +793,46 @@ pub async fn completion_impl(input: String, js_cursor_pos: usize) -> String {
                                     path_so_far,
                                 });
                             } else {
-                                // Gap between shapes, fall through to default handling
-                                context = Some(CompletionContext::Argument { prefix, span });
+                                // Gap between shapes, check if this is a flag
+                                let trimmed_prefix = prefix.trim();
+                                if trimmed_prefix.starts_with('-') {
+                                    // This looks like a flag - find the command
+                                    if let Some((cmd_name, _)) =
+                                        find_command_and_arg_index(idx, local_span)
+                                    {
+                                        context = Some(CompletionContext::Flag {
+                                            prefix: trimmed_prefix.to_string(),
+                                            span,
+                                            command_name: cmd_name,
+                                        });
+                                    } else {
+                                        context =
+                                            Some(CompletionContext::Argument { prefix, span });
+                                    }
+                                } else {
+                                    context = Some(CompletionContext::Argument { prefix, span });
+                                }
                             }
                         } else {
-                            // Previous shape is not a Variable, this is likely a regular string
-                            context = Some(CompletionContext::Argument { prefix, span });
+                            // Previous shape is not a Variable, check if this is a flag
+                            let trimmed_prefix = prefix.trim();
+                            if trimmed_prefix.starts_with('-') {
+                                // This looks like a flag - find the command
+                                if let Some((cmd_name, _)) =
+                                    find_command_and_arg_index(idx, local_span)
+                                {
+                                    context = Some(CompletionContext::Flag {
+                                        prefix: trimmed_prefix.to_string(),
+                                        span,
+                                        command_name: cmd_name,
+                                    });
+                                } else {
+                                    context = Some(CompletionContext::Argument { prefix, span });
+                                }
+                            } else {
+                                // This is likely a regular string argument
+                                context = Some(CompletionContext::Argument { prefix, span });
+                            }
                         }
                     }
                     // Special case: Check if we're completing a cell path where the Variable and dot are in separate shapes
@@ -773,11 +840,12 @@ pub async fn completion_impl(input: String, js_cursor_pos: usize) -> String {
                     _ if {
                         let trimmed_prefix = prefix.trim();
                         trimmed_prefix.starts_with('.') && idx > 0
-                    } => {
+                    } =>
+                    {
                         // Look at the previous shape to see if it's a Variable
                         let prev_shape = &shapes[idx - 1];
                         let prev_local_span = to_local_span(prev_shape.0);
-                        
+
                         if let FlatShape::Variable(var_id) = prev_shape.1 {
                             // Check if the variable shape ends right where this shape starts
                             if prev_local_span.end == local_span.start {
@@ -785,16 +853,29 @@ pub async fn completion_impl(input: String, js_cursor_pos: usize) -> String {
                                 // Parse path members from the prefix (which is like ".field" or ".field.subfield")
                                 let after_dot = &trimmed_prefix[1..]; // Remove leading dot
                                 let parts: Vec<&str> = after_dot.split('.').collect();
-                                let (path_so_far, cell_prefix) = if parts.is_empty() || (parts.len() == 1 && parts[0].is_empty()) {
+                                let (path_so_far, cell_prefix) = if parts.is_empty()
+                                    || (parts.len() == 1 && parts[0].is_empty())
+                                {
                                     (vec![], String::new())
                                 } else if after_dot.ends_with('.') {
-                                    (parts.iter().filter(|s| !s.is_empty()).map(|s| s.to_string()).collect(), String::new())
+                                    (
+                                        parts
+                                            .iter()
+                                            .filter(|s| !s.is_empty())
+                                            .map(|s| s.to_string())
+                                            .collect(),
+                                        String::new(),
+                                    )
                                 } else {
-                                    let path: Vec<String> = parts[..parts.len().saturating_sub(1)].iter().map(|s| s.to_string()).collect();
-                                    let prefix = parts.last().map(|s| s.to_string()).unwrap_or_default();
+                                    let path: Vec<String> = parts[..parts.len().saturating_sub(1)]
+                                        .iter()
+                                        .map(|s| s.to_string())
+                                        .collect();
+                                    let prefix =
+                                        parts.last().map(|s| s.to_string()).unwrap_or_default();
                                     (path, prefix)
                                 };
-                                
+
                                 let prefix_byte_len = cell_prefix.len();
                                 let cell_span_start = span.end.saturating_sub(prefix_byte_len);
                                 web_sys::console::log_1(&JsValue::from_str(&format!(
@@ -820,28 +901,40 @@ pub async fn completion_impl(input: String, js_cursor_pos: usize) -> String {
                         // Check if this is a variable or cell path (starts with $) before treating as command
                         let trimmed_prefix = prefix.trim();
                         trimmed_prefix.starts_with('$')
-                    } => {
+                    } =>
+                    {
                         let trimmed_prefix = prefix.trim();
                         // Check if this is a cell path (contains a dot after $)
                         if let Some(dot_pos) = trimmed_prefix[1..].find('.') {
                             // Cell path completion: $env.PWD, $nu.home-path, etc.
                             let var_name = &trimmed_prefix[1..dot_pos + 1]; // e.g., "env"
                             let after_var = &trimmed_prefix[dot_pos + 2..]; // e.g., "PWD" or "config.color"
-                            
+
                             // Parse path members and current prefix
                             let parts: Vec<&str> = after_var.split('.').collect();
                             let (path_so_far, cell_prefix) = if parts.is_empty() {
                                 (vec![], String::new())
                             } else if after_var.ends_with('.') {
                                 // Cursor is right after a dot, complete all fields
-                                (parts.iter().filter(|s| !s.is_empty()).map(|s| s.to_string()).collect(), String::new())
+                                (
+                                    parts
+                                        .iter()
+                                        .filter(|s| !s.is_empty())
+                                        .map(|s| s.to_string())
+                                        .collect(),
+                                    String::new(),
+                                )
                             } else {
                                 // Cursor is in the middle of typing a field name
-                                let path: Vec<String> = parts[..parts.len().saturating_sub(1)].iter().map(|s| s.to_string()).collect();
-                                let prefix = parts.last().map(|s| s.to_string()).unwrap_or_default();
+                                let path: Vec<String> = parts[..parts.len().saturating_sub(1)]
+                                    .iter()
+                                    .map(|s| s.to_string())
+                                    .collect();
+                                let prefix =
+                                    parts.last().map(|s| s.to_string()).unwrap_or_default();
                                 (path, prefix)
                             };
-                            
+
                             // Find the variable ID
                             let var_id = match var_name {
                                 "env" => Some(ENV_VARIABLE_ID),
@@ -852,7 +945,7 @@ pub async fn completion_impl(input: String, js_cursor_pos: usize) -> String {
                                     working_set.find_variable(var_name.as_bytes())
                                 }
                             };
-                            
+
                             if let Some(var_id) = var_id {
                                 // Calculate span for the cell path member being completed
                                 let prefix_byte_len = cell_prefix.len();
@@ -914,13 +1007,24 @@ pub async fn completion_impl(input: String, js_cursor_pos: usize) -> String {
                                 let (path_so_far, cell_prefix) = if parts.is_empty() {
                                     (vec![], String::new())
                                 } else if after_var.ends_with('.') {
-                                    (parts.iter().filter(|s| !s.is_empty()).map(|s| s.to_string()).collect(), String::new())
+                                    (
+                                        parts
+                                            .iter()
+                                            .filter(|s| !s.is_empty())
+                                            .map(|s| s.to_string())
+                                            .collect(),
+                                        String::new(),
+                                    )
                                 } else {
-                                    let path: Vec<String> = parts[..parts.len().saturating_sub(1)].iter().map(|s| s.to_string()).collect();
-                                    let prefix = parts.last().map(|s| s.to_string()).unwrap_or_default();
+                                    let path: Vec<String> = parts[..parts.len().saturating_sub(1)]
+                                        .iter()
+                                        .map(|s| s.to_string())
+                                        .collect();
+                                    let prefix =
+                                        parts.last().map(|s| s.to_string()).unwrap_or_default();
                                     (path, prefix)
                                 };
-                                
+
                                 let prefix_byte_len = cell_prefix.len();
                                 let cell_span_start = span.end.saturating_sub(prefix_byte_len);
                                 context = Some(CompletionContext::CellPath {
@@ -955,20 +1059,31 @@ pub async fn completion_impl(input: String, js_cursor_pos: usize) -> String {
                                 let (path_so_far, cell_prefix) = if parts.is_empty() {
                                     (vec![], String::new())
                                 } else if after_var.ends_with('.') {
-                                    (parts.iter().filter(|s| !s.is_empty()).map(|s| s.to_string()).collect(), String::new())
+                                    (
+                                        parts
+                                            .iter()
+                                            .filter(|s| !s.is_empty())
+                                            .map(|s| s.to_string())
+                                            .collect(),
+                                        String::new(),
+                                    )
                                 } else {
-                                    let path: Vec<String> = parts[..parts.len().saturating_sub(1)].iter().map(|s| s.to_string()).collect();
-                                    let prefix = parts.last().map(|s| s.to_string()).unwrap_or_default();
+                                    let path: Vec<String> = parts[..parts.len().saturating_sub(1)]
+                                        .iter()
+                                        .map(|s| s.to_string())
+                                        .collect();
+                                    let prefix =
+                                        parts.last().map(|s| s.to_string()).unwrap_or_default();
                                     (path, prefix)
                                 };
-                                
+
                                 let var_id = match var_name {
                                     "env" => Some(ENV_VARIABLE_ID),
                                     "nu" => Some(NU_VARIABLE_ID),
                                     "in" => Some(IN_VARIABLE_ID),
-                                    _ => working_set.find_variable(var_name.as_bytes())
+                                    _ => working_set.find_variable(var_name.as_bytes()),
                                 };
-                                
+
                                 if let Some(var_id) = var_id {
                                     let prefix_byte_len = cell_prefix.len();
                                     let cell_span_start = span.end.saturating_sub(prefix_byte_len);
@@ -1054,16 +1169,82 @@ pub async fn completion_impl(input: String, js_cursor_pos: usize) -> String {
 
                         // Extract the command text
                         let cmd = safe_slice(local_span);
-                        web_sys::console::log_1(&JsValue::from_str(&format!(
-                            "[completion] Set Command context with prefix: {:?}",
-                            cmd
-                        )));
+                        let cmd_name = cmd.split_whitespace().next().unwrap_or(&cmd).trim();
 
-                        // We're after a command, complete with that command as prefix
-                        context = Some(CompletionContext::Command {
-                            prefix: cmd,
-                            span: local_span,
-                        });
+                        // Check if we're right after the command (only whitespace between command and cursor)
+                        let text_after_command = if local_span.end < input.len() {
+                            &input[local_span.end..byte_pos]
+                        } else {
+                            ""
+                        };
+                        let is_right_after_command = text_after_command.trim().is_empty();
+
+                        // If we're right after a command, check if it has positional arguments
+                        if is_right_after_command {
+                            if let Some(signature) = get_command_signature(cmd_name) {
+                                // Check if command has any positional arguments
+                                let has_positional_args = !signature.required_positional.is_empty()
+                                    || !signature.optional_positional.is_empty();
+
+                                if has_positional_args {
+                                    // Count existing arguments before cursor
+                                    let mut arg_count = 0;
+                                    for (prev_span, prev_shape) in shapes.iter().rev() {
+                                        let prev_local_span = to_local_span(*prev_span);
+                                        if prev_local_span.end <= byte_pos
+                                            && prev_local_span.end > local_span.end
+                                        {
+                                            if !is_command_shape(prev_shape, prev_local_span) {
+                                                let arg_text = safe_slice(prev_local_span);
+                                                let trimmed_arg = arg_text.trim();
+                                                // Don't count flags (starting with -) or empty arguments
+                                                if !trimmed_arg.is_empty()
+                                                    && !trimmed_arg.starts_with('-')
+                                                {
+                                                    arg_count += 1;
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    web_sys::console::log_1(&JsValue::from_str(&format!(
+                                        "[completion] Right after command {:?}, setting CommandArgument context with arg_index: {}",
+                                        cmd_name, arg_count
+                                    )));
+
+                                    context = Some(CompletionContext::CommandArgument {
+                                        prefix: String::new(),
+                                        span: Span::new(byte_pos, byte_pos),
+                                        command_name: cmd_name.to_string(),
+                                        arg_index: arg_count,
+                                    });
+                                } else {
+                                    // No positional arguments, don't show any completions
+                                    web_sys::console::log_1(&JsValue::from_str(&format!(
+                                        "[completion] Command {:?} has no positional args, not showing completions",
+                                        cmd_name
+                                    )));
+                                    // Leave context as None to show no completions
+                                }
+                            } else {
+                                // Couldn't find signature, don't show completions
+                                web_sys::console::log_1(&JsValue::from_str(&format!(
+                                    "[completion] Could not find signature for {:?}, not showing completions",
+                                    cmd_name
+                                )));
+                                // Leave context as None to show no completions
+                            }
+                        } else {
+                            // Not right after command, complete the command itself
+                            web_sys::console::log_1(&JsValue::from_str(&format!(
+                                "[completion] Set Command context with prefix: {:?}",
+                                cmd
+                            )));
+                            context = Some(CompletionContext::Command {
+                                prefix: cmd,
+                                span: local_span,
+                            });
+                        }
                     }
                 }
                 break;
@@ -1145,20 +1326,30 @@ pub async fn completion_impl(input: String, js_cursor_pos: usize) -> String {
                         let (path_so_far, cell_prefix) = if parts.is_empty() {
                             (vec![], String::new())
                         } else if after_var.ends_with('.') {
-                            (parts.iter().filter(|s| !s.is_empty()).map(|s| s.to_string()).collect(), String::new())
+                            (
+                                parts
+                                    .iter()
+                                    .filter(|s| !s.is_empty())
+                                    .map(|s| s.to_string())
+                                    .collect(),
+                                String::new(),
+                            )
                         } else {
-                            let path: Vec<String> = parts[..parts.len().saturating_sub(1)].iter().map(|s| s.to_string()).collect();
+                            let path: Vec<String> = parts[..parts.len().saturating_sub(1)]
+                                .iter()
+                                .map(|s| s.to_string())
+                                .collect();
                             let prefix = parts.last().map(|s| s.to_string()).unwrap_or_default();
                             (path, prefix)
                         };
-                        
+
                         let var_id = match var_name {
                             "env" => Some(ENV_VARIABLE_ID),
                             "nu" => Some(NU_VARIABLE_ID),
                             "in" => Some(IN_VARIABLE_ID),
-                            _ => working_set.find_variable(var_name.as_bytes())
+                            _ => working_set.find_variable(var_name.as_bytes()),
                         };
-                        
+
                         if let Some(var_id) = var_id {
                             let prefix_byte_len = cell_prefix.len();
                             let cell_span_start = byte_pos.saturating_sub(prefix_byte_len);
@@ -1298,12 +1489,6 @@ pub async fn completion_impl(input: String, js_cursor_pos: usize) -> String {
         Span::new(char_start, char_end)
     };
 
-    let get_command_signature = |cmd_name: &str| -> Option<nu_protocol::Signature> {
-        engine_guard
-            .find_decl(cmd_name.as_bytes(), &[])
-            .map(|id| engine_guard.get_decl(id).signature())
-    };
-
     match context {
         Some(CompletionContext::Command { prefix, span }) => {
             web_sys::console::log_1(&JsValue::from_str(&format!(
@@ -1414,43 +1599,54 @@ pub async fn completion_impl(input: String, js_cursor_pos: usize) -> String {
                         let long_name = format!("--{}", flag.long);
                         let short_name = flag.short.map(|c| format!("-{}", c));
 
-                        // Check if prefix matches long or short form
-                        let matches_long = long_name.starts_with(&prefix) || prefix.is_empty();
-                        let matches_short = short_name
-                            .as_ref()
-                            .map(|s| s.starts_with(&prefix) || prefix.is_empty())
-                            .unwrap_or(false);
+                        // Determine which flags to show based on prefix:
+                        // - If prefix is empty or exactly "-", show all flags (both short and long)
+                        // - If prefix starts with "--", only show long flags that match the prefix
+                        // - If prefix starts with "-" (but not "--"), only show short flags that match the prefix
+                        let show_all = prefix.is_empty() || prefix == "-";
 
-                        if matches_long {
-                            suggestions.push(Suggestion {
-                                name: long_name.clone(),
+                        // Helper to create a flag suggestion
+                        let create_flag_suggestion = |flag_name: String| -> Suggestion {
+                            Suggestion {
+                                name: flag_name.clone(),
                                 description: Some(flag.desc.clone()),
                                 is_command: false,
                                 rendered: {
                                     let flag_colored =
-                                        ansi_term::Color::Cyan.bold().paint(&long_name);
+                                        ansi_term::Color::Cyan.bold().paint(&flag_name);
                                     format!("{flag_colored} {}", flag.desc)
                                 },
                                 span_start: span.start,
                                 span_end: span.end,
-                            });
+                            }
+                        };
+
+                        // Add long flag if it matches
+                        let should_show_long = if show_all {
+                            true // Show all flags when prefix is "-" or empty
+                        } else if prefix.starts_with("--") {
+                            long_name.starts_with(&prefix) // Only show long flags matching prefix
+                        } else {
+                            false // Don't show long flags if prefix is short flag format
+                        };
+
+                        if should_show_long {
+                            suggestions.push(create_flag_suggestion(long_name));
                             flag_count += 1;
                         }
 
-                        if matches_short {
-                            if let Some(short) = short_name {
-                                suggestions.push(Suggestion {
-                                    name: short.clone(),
-                                    description: Some(flag.desc.clone()),
-                                    is_command: false,
-                                    rendered: {
-                                        let flag_colored =
-                                            ansi_term::Color::Cyan.bold().paint(&short);
-                                        format!("{flag_colored} {}", flag.desc)
-                                    },
-                                    span_start: span.start,
-                                    span_end: span.end,
-                                });
+                        // Add short flag if it matches
+                        if let Some(short) = &short_name {
+                            let should_show_short = if show_all {
+                                true // Show all flags when prefix is "-" or empty
+                            } else if prefix.starts_with("-") && !prefix.starts_with("--") {
+                                short.starts_with(&prefix) // Only show short flags matching prefix
+                            } else {
+                                false // Don't show short flags if prefix is long flag format
+                            };
+
+                            if should_show_short {
+                                suggestions.push(create_flag_suggestion(short.clone()));
                                 flag_count += 1;
                             }
                         }
@@ -1672,18 +1868,18 @@ pub async fn completion_impl(input: String, js_cursor_pos: usize) -> String {
                 "[completion] Generating Variable suggestions with prefix: {:?}",
                 prefix
             )));
-            
+
             // Collect all available variables
             let variables = collect_variables(&working_set, &input, byte_pos);
             let span = to_char_span(span);
             let mut var_count = 0;
-            
+
             for (var_name, var_id) in variables {
                 // Filter by prefix (variable name includes $, so we need to check after $)
                 if var_name.len() > 1 && var_name[1..].starts_with(&prefix) {
                     // Get variable type
                     let var_type = working_set.get_variable(var_id).ty.to_string();
-                    
+
                     suggestions.push(Suggestion {
                         name: var_name.clone(),
                         description: Some(var_type.clone()),
@@ -1698,18 +1894,23 @@ pub async fn completion_impl(input: String, js_cursor_pos: usize) -> String {
                     var_count += 1;
                 }
             }
-            
+
             web_sys::console::log_1(&JsValue::from_str(&format!(
                 "[completion] Found {} variable suggestions",
                 var_count
             )));
         }
-        Some(CompletionContext::CellPath { prefix, span, var_id, path_so_far }) => {
+        Some(CompletionContext::CellPath {
+            prefix,
+            span,
+            var_id,
+            path_so_far,
+        }) => {
             web_sys::console::log_1(&JsValue::from_str(&format!(
                 "[completion] Generating CellPath suggestions with prefix: {:?}, path: {:?}",
                 prefix, path_so_far
             )));
-            
+
             // Evaluate the variable to get its value
             if let Some(var_value) = eval_variable_for_completion(var_id, &working_set) {
                 // Follow the path to get the value at the current level
@@ -1718,12 +1919,12 @@ pub async fn completion_impl(input: String, js_cursor_pos: usize) -> String {
                 } else {
                     follow_cell_path(&var_value, &path_so_far).unwrap_or(var_value)
                 };
-                
+
                 // Get columns/fields from the current value
                 let columns = get_columns_from_value(&current_value);
                 let span = to_char_span(span);
                 let mut field_count = 0;
-                
+
                 for (col_name, col_type) in columns {
                     // Filter by prefix
                     if col_name.starts_with(&prefix) {
@@ -1742,7 +1943,7 @@ pub async fn completion_impl(input: String, js_cursor_pos: usize) -> String {
                         field_count += 1;
                     }
                 }
-                
+
                 web_sys::console::log_1(&JsValue::from_str(&format!(
                     "[completion] Found {} cell path suggestions",
                     field_count
@@ -1754,7 +1955,7 @@ pub async fn completion_impl(input: String, js_cursor_pos: usize) -> String {
                     "[completion] Could not evaluate variable {:?} for cell path completion (runtime variable)",
                     var_id
                 )));
-                
+
                 // Try to get type information to provide better feedback
                 if let Ok(var_info) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                     working_set.get_variable(var_id)
