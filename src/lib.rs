@@ -28,7 +28,7 @@ pub mod memory_fs;
 
 use crate::{
     cmd::{
-        Cd, Fetch, Job, JobKill, JobList, Ls, Mkdir, Mv, Open, Pwd, Random, Rm, Save, Source, Sys,
+        Cd, Fetch, Job, JobKill, JobList, Ls, Mkdir, Mv, Open, Print, Pwd, Random, Rm, Save, Source, Sys,
         source::eval_file,
     },
     default_context::add_shell_command_context,
@@ -102,7 +102,7 @@ fn init_engine_internal() -> Result<(), Report> {
     engine_state = add_extra_command_context(engine_state);
 
     let mut working_set = StateWorkingSet::new(&engine_state);
-    let decls: [Box<dyn Command>; 15] = [
+    let decls: [Box<dyn Command>; 16] = [
         Box::new(Ls),
         Box::new(Open),
         Box::new(Save),
@@ -118,6 +118,7 @@ fn init_engine_internal() -> Result<(), Report> {
         Box::new(JobKill),
         Box::new(Sys),
         Box::new(Random),
+        Box::new(Print),
     ];
     for decl in decls {
         working_set.add_decl(decl);
