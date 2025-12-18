@@ -17,7 +17,7 @@ impl Command for Mkdir {
         Signature::build("mkdir")
             .required(
                 "path",
-                SyntaxShape::String,
+                SyntaxShape::Filepath,
                 "path of the directory(s) to create",
             )
             .input_output_type(Type::Nothing, Type::Nothing)

@@ -6,6 +6,7 @@ use nu_protocol::{ENV_VARIABLE_ID, IN_VARIABLE_ID, NU_VARIABLE_ID, Span};
 #[macro_export]
 macro_rules! console_log {
     ($($arg:tt)*) => {
+        #[cfg(debug_assertions)]
         web_sys::console::log_1(&wasm_bindgen::JsValue::from_str(&format!($($arg)*)));
     };
 }
