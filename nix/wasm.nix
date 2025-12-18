@@ -21,6 +21,7 @@ let
         ../Cargo.lock
         ../src
         ../.cargo
+        ../embedded
       ];
     };
 
