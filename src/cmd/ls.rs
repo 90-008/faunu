@@ -1,5 +1,4 @@
 use std::{
-    borrow::Cow,
     sync::Arc,
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -11,7 +10,6 @@ use nu_protocol::{
     Category, ListStream, PipelineData, Record, ShellError, Signature, SyntaxShape, Type, Value,
     engine::{Command, EngineState, Stack},
 };
-use wasm_bindgen::JsValue;
 
 #[derive(Clone)]
 pub struct Ls;

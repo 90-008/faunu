@@ -1,6 +1,5 @@
 use async_lock::{RwLock, RwLockReadGuard, RwLockUpgradableReadGuard, RwLockWriteGuard};
 use futures::FutureExt;
-use jacquard::chrono;
 use js_sys::Promise;
 use miette::Report;
 use nu_cmd_base::hook::eval_hook;
@@ -15,9 +14,7 @@ use nu_protocol::{
 use std::{
     io::Cursor,
     sync::{Arc, OnceLock},
-    time::UNIX_EPOCH,
 };
-use vfs::VfsError;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::future_to_promise;
 
@@ -36,11 +33,10 @@ use crate::{
     default_context::add_shell_command_context,
     error::format_error,
     globals::{
-        InterruptBool, apply_pending_deltas, current_time, get_pwd, print_to_console, set_interrupt,
+        InterruptBool, apply_pending_deltas, get_pwd, print_to_console, set_interrupt,
     },
 };
 use error::CommandError;
-use globals::get_vfs;
 
 #[wasm_bindgen]
 extern "C" {
