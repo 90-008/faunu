@@ -11,7 +11,10 @@ import init, {
 
 // Initialize WASM
 await init();
-init_engine();
+const error = init_engine();
+if (error) {
+  console.error(error);
+}
 
 // Setup Callbacks to proxy messages back to Main Thread
 register_console_callback((msg: string, isCmd: boolean) => {

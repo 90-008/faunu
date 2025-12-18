@@ -29,11 +29,12 @@ pub mod memory_fs;
 use crate::{
     cmd::{
         Cd, Fetch, Job, JobKill, JobList, Ls, Mkdir, Mv, Open, Pwd, Random, Rm, Save, Source, Sys,
+        source::eval_file,
     },
     default_context::add_shell_command_context,
     error::format_error,
     globals::{
-        InterruptBool, apply_pending_deltas, get_pwd, print_to_console, set_interrupt,
+        InterruptBool, apply_pending_deltas, get_pwd, get_vfs, print_to_console, set_interrupt,
     },
 };
 use error::CommandError;
@@ -67,24 +68,35 @@ fn panic_hook(info: &std::panic::PanicHookInfo) {
 static ENGINE_STATE: OnceLock<RwLock<EngineState>> = OnceLock::new();
 #[inline]
 async fn read_engine_state() -> RwLockReadGuard<'static, EngineState> {
-    ENGINE_STATE.get().unwrap().read().await
+    unsafe { ENGINE_STATE.get().unwrap_unchecked() }
+        .read()
+        .await
 }
 #[inline]
 async fn write_engine_state() -> RwLockWriteGuard<'static, EngineState> {
-    ENGINE_STATE.get().unwrap().write().await
+    unsafe { ENGINE_STATE.get().unwrap_unchecked() }
+        .write()
+        .await
 }
 
 static STACK: OnceLock<RwLock<Stack>> = OnceLock::new();
 #[inline]
 async fn read_stack() -> RwLockReadGuard<'static, Stack> {
-    STACK.get().unwrap().read().await
+    unsafe { STACK.get().unwrap_unchecked() }.read().await
 }
 #[inline]
 async fn write_stack() -> RwLockWriteGuard<'static, Stack> {
-    STACK.get().unwrap().write().await
+    unsafe { STACK.get().unwrap_unchecked() }.write().await
+}
+
+#[wasm_bindgen]
+pub fn init_engine() -> String {
+    std::panic::set_hook(Box::new(panic_hook));
+    init_engine_internal().map_or_else(|err| format!("error: {err}"), |_| String::new())
 }
 
 fn init_engine_internal() -> Result<(), Report> {
+    let mut stack = Stack::new();
     let mut engine_state = create_default_context();
     engine_state = add_shell_command_context(engine_state);
     engine_state = add_extra_command_context(engine_state);
@@ -121,11 +133,19 @@ fn init_engine_internal() -> Result<(), Report> {
 
     engine_state.set_signals(Signals::new(Arc::new(InterruptBool)));
 
+    // source our "nu rc"
+    let rc_path = get_vfs().join("/.env.nu").ok();
+    let rc = rc_path.and_then(|env| env.exists().ok().and_then(|ok| ok.then_some(env)));
+    if let Some(env) = rc {
+        web_sys::console::log_1(&format!("Loading rc file: {}", env.as_str()).into());
+        eval_file(&engine_state, &mut stack, &env, Span::unknown())?;
+    }
+
     ENGINE_STATE
         .set(RwLock::new(engine_state))
         .map_err(|_| miette::miette!("ENGINE_STATE was already set!?"))?;
     STACK
-        .set(RwLock::new(Stack::new()))
+        .set(RwLock::new(stack))
         .map_err(|_| miette::miette!("STACK was already set!?"))?;
 
     // web_sys::console::log_1(&"Hello, World!".into());
@@ -133,14 +153,10 @@ fn init_engine_internal() -> Result<(), Report> {
     Ok(())
 }
 
-#[wasm_bindgen]
-pub fn init_engine() -> String {
-    std::panic::set_hook(Box::new(panic_hook));
-    init_engine_internal().map_or_else(|err| format!("error: {err}"), |_| String::new())
-}
-
 async fn run_command_internal(input: &str) -> Result<(), CommandError> {
-    let mut engine_state = ENGINE_STATE.get().unwrap().upgradable_read().await;
+    let mut engine_state = unsafe { ENGINE_STATE.get().unwrap_unchecked() }
+        .upgradable_read()
+        .await;
     let (mut working_set, signals, config) = {
         let mut write_engine_state = RwLockUpgradableReadGuard::upgrade(engine_state).await;
         apply_pending_deltas(&mut write_engine_state).map_err(|e| CommandError {
@@ -191,6 +207,8 @@ async fn run_command_internal(input: &str) -> Result<(), CommandError> {
             &block,
             PipelineData::Empty,
         );
+        // Apply any deltas queued during command execution (e.g., from source-file)
+        apply_pending_deltas(&mut write_engine_state).map_err(cmd_err)?;
         engine_state = RwLockWriteGuard::downgrade_to_upgradable(write_engine_state);
         res
     };
