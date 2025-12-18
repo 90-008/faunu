@@ -3,6 +3,7 @@ use nu_protocol::{
     ShellError, Signal, Span,
     engine::{EngineState, StateDelta},
 };
+use rust_embed::RustEmbed;
 use std::{
     collections::HashMap,
     sync::{
@@ -11,17 +12,28 @@ use std::{
     },
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
-use vfs::{VfsError, VfsPath, error::VfsErrorKind};
+use vfs::{EmbeddedFS, OverlayFS, VfsError, VfsPath, error::VfsErrorKind};
 use wasm_bindgen::prelude::*;
 
 use crate::memory_fs::MemoryFS;
 
 static ROOT: OnceLock<Arc<VfsPath>> = OnceLock::new();
 
-pub fn get_vfs() -> Arc<VfsPath> {
-    ROOT.get_or_init(|| Arc::new(VfsPath::new(MemoryFS::new())))
-        .clone()
+fn init_vfs() -> Arc<VfsPath> {
+    let memory_fs = VfsPath::new(MemoryFS::new());
+    let embedded_fs = VfsPath::new(EmbeddedFS::<EmbeddedFiles>::new());
+    let overlaid_fs = VfsPath::new(OverlayFS::new(&[memory_fs, embedded_fs]));
+    Arc::new(overlaid_fs)
 }
+
+pub fn get_vfs() -> Arc<VfsPath> {
+    ROOT.get_or_init(init_vfs).clone()
+}
+
+#[derive(RustEmbed, Debug)]
+#[folder = "embedded/"]
+#[exclude = ".gitkeep"]
+pub struct EmbeddedFiles;
 
 static PWD: OnceLock<RwLock<Arc<VfsPath>>> = OnceLock::new();
 

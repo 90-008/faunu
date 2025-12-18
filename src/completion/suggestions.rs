@@ -193,7 +193,6 @@ pub fn generate_flag_suggestions(
 pub fn generate_command_argument_suggestions(
     input: &str,
     engine_guard: &EngineState,
-    working_set: &StateWorkingSet,
     prefix: String,
     span: Span,
     command_name: String,
@@ -299,7 +298,6 @@ pub fn generate_command_argument_suggestions(
         // Get positional arguments from signature
         // Check if argument is in required or optional positional
         let required_count = signature.required_positional.len();
-        let is_optional = arg_index >= required_count;
 
         // Find the argument at the given index
         let arg = if arg_index < signature.required_positional.len() {
@@ -546,7 +544,6 @@ pub fn generate_suggestions(
             } => generate_command_argument_suggestions(
                 input,
                 engine_guard,
-                working_set,
                 prefix,
                 span,
                 command_name,

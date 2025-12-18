@@ -13,7 +13,6 @@ pub mod rm;
 pub mod save;
 pub mod source;
 pub mod sys;
-pub mod version;
 
 pub use cd::Cd;
 pub use fetch::Fetch;
@@ -30,4 +29,3 @@ pub use rm::Rm;
 pub use save::Save;
 pub use source::Source;
 pub use sys::Sys;
-pub use version::Version;

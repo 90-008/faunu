@@ -11,6 +11,7 @@ use nu_protocol::{
     Category, ListStream, PipelineData, Record, ShellError, Signature, SyntaxShape, Type, Value,
     engine::{Command, EngineState, Stack},
 };
+use wasm_bindgen::JsValue;
 
 #[derive(Clone)]
 pub struct Ls;
@@ -55,6 +56,11 @@ impl Command for Ls {
         let full_paths = call.has_flag(engine_state, stack, "full-paths")?;
 
         let pwd = get_pwd();
+        // web_sys::console::log_1(&JsValue::from_str(&format!("{pwd:?}")));
+        // web_sys::console::log_1(&JsValue::from_str(&format!(
+        //     "{:?}",
+        //     pwd.read_dir().map(|a| a.collect::<Vec<_>>())
+        // )));
         let mut target_dir = pwd.clone();
         if let Some(path) = path_arg {
             target_dir = Arc::new(

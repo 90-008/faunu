@@ -180,6 +180,12 @@ impl Command for Sys {
             );
         }
 
+        let date = compile_time::unix!();
+        let rustc = compile_time::rustc_version_str!();
+
+        rec.push("build_time", Value::int(date, head));
+        rec.push("rustc_version", Value::string(rustc, head));
+
         Ok(Value::record(rec, head).into_pipeline_data())
     }
 }

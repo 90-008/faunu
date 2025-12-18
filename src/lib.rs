@@ -32,7 +32,6 @@ pub mod memory_fs;
 use crate::{
     cmd::{
         Cd, Fetch, Job, JobKill, JobList, Ls, Mkdir, Mv, Open, Pwd, Random, Rm, Save, Source, Sys,
-        Version,
     },
     default_context::add_shell_command_context,
     error::format_error,
@@ -94,47 +93,8 @@ fn init_engine_internal() -> Result<(), Report> {
     engine_state = add_shell_command_context(engine_state);
     engine_state = add_extra_command_context(engine_state);
 
-    let write_file = |name: &str, contents: &str| {
-        get_vfs()
-            .join(name)
-            .and_then(|p| p.create_file())
-            .and_then(|mut f| f.write_all(contents.as_bytes()).map_err(VfsError::from))
-            .map_err(|e| miette::miette!(e.to_string()))
-    };
-
-    let access_log = format!(
-        r#"/dysnomia.v000 /user: 90008/ /ip: [REDACTED]/ /time: [REDACTED]//
-/dysnomia.v002 /user: 90008/ /ip: [REDACTED]/ /time: [REDACTED]//
-/dysnomia.v011 /user: 90008/ /ip: [REDACTED]/ /time: [REDACTED]//
-[...ENTRIES TRUNCATED...]
-/dysnomia.v099 /user: anonymous/ /ip: [REDACTED]/ /time: {time}//"#,
-        time = current_time()
-            .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
-            .map_or_else(
-                || "unknown".to_string(),
-                |time| chrono::DateTime::from_timestamp_nanos(time.as_nanos() as i64)
-                    .format("%Y-%m-%dT%H:%M:%SZ")
-                    .to_string()
-            )
-    );
-    write_file(".access.log", &access_log)?;
-
-    let welcome_txt = r#"welcome  anonymous !
-
-
-you are interfacing with dysnomia.v099
-using the nu shell.
-
-
-a few commands you can try:
-
-"hello, user!" | save message.txt
-fetch at://ptr.pet
-ls --help"#;
-    write_file("welcome.txt", &welcome_txt)?;
-
     let mut working_set = StateWorkingSet::new(&engine_state);
-    let decls: [Box<dyn Command>; 16] = [
+    let decls: [Box<dyn Command>; 15] = [
         Box::new(Ls),
         Box::new(Open),
         Box::new(Save),
@@ -150,7 +110,6 @@ ls --help"#;
         Box::new(JobKill),
         Box::new(Sys),
         Box::new(Random),
-        Box::new(Version),
     ];
     for decl in decls {
         working_set.add_decl(decl);
@@ -161,6 +120,7 @@ ls --help"#;
     config.use_ansi_coloring = true.into();
     config.show_banner = nu_protocol::BannerKind::Full;
     config.hooks.display_output = Some("table".into_value(Span::unknown()));
+    config.table.show_empty = false;
     engine_state.config = Arc::new(config);
 
     engine_state.set_signals(Signals::new(Arc::new(InterruptBool)));
