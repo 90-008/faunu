@@ -30,6 +30,11 @@ impl Command for Version {
         call: &Call,
         _input: PipelineData,
     ) -> Result<PipelineData, ShellError> {
-        Ok(Value::string("dysnomia.v099.t1765660500", call.head).into_pipeline_data())
+        let date = compile_time::unix!();
+        let rustc = compile_time::rustc_version_str!();
+        Ok(
+            Value::string(format!("dysnomia.v099.t{date} (rustc {rustc})"), call.head)
+                .into_pipeline_data(),
+        )
     }
 }

@@ -68,7 +68,9 @@ impl Command for Mv {
             .map_err(to_shell_err(call.arguments_span()))?;
 
         // Check that source exists
-        let meta = source.metadata().map_err(to_shell_err(call.arguments_span()))?;
+        let meta = source
+            .metadata()
+            .map_err(to_shell_err(call.arguments_span()))?;
 
         match meta.file_type {
             VfsFileType::File => move_file(&source, &dest, call.arguments_span())?,
@@ -85,9 +87,7 @@ fn move_file(
     span: nu_protocol::Span,
 ) -> Result<(), ShellError> {
     // Read source file content
-    let mut source_file = source
-        .open_file()
-        .map_err(to_shell_err(span))?;
+    let mut source_file = source.open_file().map_err(to_shell_err(span))?;
 
     let mut contents = Vec::new();
     source_file
@@ -127,7 +127,9 @@ fn move_directory(
     // Recursively move all entries
     let entries = source.read_dir().map_err(to_shell_err(span))?;
     for entry_name in entries {
-        let source_entry = source.join(entry_name.as_str()).map_err(to_shell_err(span))?;
+        let source_entry = source
+            .join(entry_name.as_str())
+            .map_err(to_shell_err(span))?;
         let dest_entry = dest.join(entry_name.as_str()).map_err(to_shell_err(span))?;
 
         let entry_meta = source_entry.metadata().map_err(to_shell_err(span))?;
@@ -142,4 +144,3 @@ fn move_directory(
 
     Ok(())
 }
-
