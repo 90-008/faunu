@@ -9,7 +9,6 @@ use wasm_bindgen_futures::future_to_promise;
 use super::*;
 
 pub mod context;
-pub mod files;
 pub mod helpers;
 pub mod suggestions;
 pub mod types;
@@ -75,7 +74,7 @@ pub async fn completion_impl(input: String, js_cursor_pos: usize) -> String {
     );
 
     // Generate suggestions based on context
-    let mut suggestions = generate_suggestions(
+    let suggestions = generate_suggestions(
         &input,
         context,
         &working_set,
@@ -88,7 +87,6 @@ pub async fn completion_impl(input: String, js_cursor_pos: usize) -> String {
     drop(working_set);
     drop(engine_guard);
 
-    suggestions.sort();
     let suggestions = serde_json::to_string(&suggestions).unwrap_or_else(|_| "[]".to_string());
     console_log!("{suggestions}");
     suggestions

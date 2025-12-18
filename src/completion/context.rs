@@ -734,7 +734,7 @@ pub fn determine_context_fallback(
     engine_guard: &EngineState,
     byte_pos: usize,
     global_offset: usize,
-) -> Option<CompletionContext> {
+) -> Vec<CompletionContext> {
     use nu_parser::{TokenContents, lex};
 
     console_log!("[completion] Context is None, entering fallback logic");
@@ -779,6 +779,7 @@ pub fn determine_context_fallback(
                             cmd_first_word.clone()
                         };
 
+                        let mut context = Vec::with_capacity(2);
                         if let Some(signature) = get_command_signature(engine_guard, &cmd_name) {
                             // Check if command has any positional arguments
                             let has_positional_args = !signature.required_positional.is_empty()
@@ -809,61 +810,43 @@ pub fn determine_context_fallback(
                                     "[completion] Right after command {cmd_name:?}, setting CommandArgument context with arg_index: {arg_count}"
                                 );
 
-                                return Some(CompletionContext::CommandArgument {
+                                context.push(CompletionContext::CommandArgument {
                                     prefix: String::new(),
                                     span: Span::new(byte_pos, byte_pos),
-                                    command_name: cmd_name,
+                                    command_name: cmd_name.clone(),
                                     arg_index: arg_count,
-                                });
-                            } else {
-                                // No positional arguments
-                                // If this is a subcommand (contains spaces), don't show subcommands
-                                // Only show subcommands if we're using just the base command (single word)
-                                if is_subcommand && full_cmd_exists {
-                                    console_log!(
-                                        "[completion] Command {cmd_name:?} is a subcommand with no positional args, not showing completions"
-                                    );
-                                    return None;
-                                } else {
-                                    // Show subcommands of the base command
-                                    console_log!(
-                                        "[completion] Command {cmd_name:?} has no positional args, showing subcommands"
-                                    );
-                                    return Some(CompletionContext::Command {
-                                        prefix: String::new(),
-                                        span: Span::new(byte_pos, byte_pos),
-                                        parent_command: Some(cmd_first_word),
-                                    });
-                                }
-                            }
-                        } else {
-                            // Couldn't find signature
-                            // If this is a subcommand, don't show completions
-                            // Otherwise, show subcommands of the first word
-                            if is_subcommand && full_cmd_exists {
-                                console_log!(
-                                    "[completion] Could not find signature for subcommand {cmd_name:?}, not showing completions"
-                                );
-                                return None;
-                            } else {
-                                console_log!(
-                                    "[completion] Could not find signature for {cmd_name:?}, showing subcommands"
-                                );
-                                return Some(CompletionContext::Command {
-                                    prefix: String::new(),
-                                    span: Span::new(byte_pos, byte_pos),
-                                    parent_command: Some(cmd_first_word),
                                 });
                             }
                         }
+                        // No positional arguments
+                        // If this is a subcommand (contains spaces), don't show subcommands
+                        // Only show subcommands if we're using just the base command (single word)
+                        if is_subcommand && full_cmd_exists {
+                            console_log!(
+                                "[completion] Command {cmd_name:?} is a subcommand with no positional args, not showing completions"
+                            );
+                        } else {
+                            // Show subcommands of the base command
+                            console_log!(
+                                "[completion] Command {cmd_name:?} has no positional args, showing subcommands"
+                            );
+                            context.push(CompletionContext::Command {
+                                prefix: String::new(),
+                                span: Span::new(byte_pos, byte_pos),
+                                parent_command: Some(cmd_first_word),
+                            });
+                        }
+                        // reverse to put subcommands in the beginning
+                        context.reverse();
+                        return context;
                     } else {
                         // Not right after command, complete the command itself
                         console_log!("[completion] Set Command context with prefix: {cmd:?}");
-                        return Some(CompletionContext::Command {
+                        return vec![CompletionContext::Command {
                             prefix: cmd.to_string(),
                             span: local_span,
                             parent_command: None,
-                        });
+                        }];
                     }
                 }
             }
@@ -919,11 +902,11 @@ pub fn determine_context_fallback(
     console_log!("[completion] last_word_start={last_word_start}, last_word={last_word:?}");
 
     if is_cmd_context {
-        Some(CompletionContext::Command {
+        vec![CompletionContext::Command {
             prefix: last_word.to_string(),
             span: Span::new(last_word_start, byte_pos),
             parent_command: None,
-        })
+        }]
     } else {
         // Check if this is a variable or cell path (starts with $)
         let trimmed_word = last_word.trim();
@@ -935,26 +918,26 @@ pub fn determine_context_fallback(
                 if let Some(var_id) = var_id {
                     let prefix_byte_len = cell_prefix.len();
                     let cell_span_start = byte_pos.saturating_sub(prefix_byte_len);
-                    Some(CompletionContext::CellPath {
+                    vec![CompletionContext::CellPath {
                         prefix: cell_prefix.to_string(),
                         span: Span::new(cell_span_start, byte_pos),
                         var_id,
                         path_so_far: path_so_far.iter().map(|s| s.to_string()).collect(),
-                    })
+                    }]
                 } else {
                     let var_prefix = trimmed_word[1..].to_string();
-                    Some(CompletionContext::Variable {
+                    vec![CompletionContext::Variable {
                         prefix: var_prefix,
                         span: Span::new(last_word_start, byte_pos),
-                    })
+                    }]
                 }
             } else {
                 // Simple variable completion
                 let var_prefix = trimmed_word[1..].to_string();
-                Some(CompletionContext::Variable {
+                vec![CompletionContext::Variable {
                     prefix: var_prefix,
                     span: Span::new(last_word_start, byte_pos),
-                })
+                }]
             }
         } else if trimmed_word.starts_with('-') {
             // Try to find command by looking backwards through shapes
@@ -969,16 +952,16 @@ pub fn determine_context_fallback(
                 }
             }
             if let Some(cmd_name) = found_cmd {
-                Some(CompletionContext::Flag {
+                vec![CompletionContext::Flag {
                     prefix: trimmed_word.to_string(),
                     span: Span::new(last_word_start, byte_pos),
                     command_name: cmd_name,
-                })
+                }]
             } else {
-                Some(CompletionContext::Argument {
+                vec![CompletionContext::Argument {
                     prefix: last_word.to_string(),
                     span: Span::new(last_word_start, byte_pos),
-                })
+                }]
             }
         } else {
             // Try to find command and argument index
@@ -1002,17 +985,17 @@ pub fn determine_context_fallback(
                 }
             }
             if let Some(cmd_name) = found_cmd {
-                Some(CompletionContext::CommandArgument {
+                vec![CompletionContext::CommandArgument {
                     prefix: trimmed_word.to_string(),
                     span: Span::new(last_word_start, byte_pos),
                     command_name: cmd_name,
                     arg_index: arg_count,
-                })
+                }]
             } else {
-                Some(CompletionContext::Argument {
+                vec![CompletionContext::Argument {
                     prefix: last_word.to_string(),
                     span: Span::new(last_word_start, byte_pos),
-                })
+                }]
             }
         }
     }
@@ -1025,12 +1008,12 @@ pub fn determine_context(
     engine_guard: &EngineState,
     byte_pos: usize,
     global_offset: usize,
-) -> Option<CompletionContext> {
+) -> Vec<CompletionContext> {
     // First try to determine context from shapes
     if let Some(ctx) =
         determine_context_from_shape(input, shapes, working_set, byte_pos, global_offset)
     {
-        return Some(ctx);
+        return vec![ctx];
     }
 
     // Fallback to token-based context determination

@@ -5,7 +5,6 @@ use serde::Serialize;
 pub struct Suggestion {
     pub name: String,
     pub description: Option<String>,
-    pub is_command: bool,
     pub rendered: String,
     pub span_start: usize, // char index (not byte)
     pub span_end: usize,   // char index (not byte)
@@ -28,7 +27,7 @@ impl Ord for Suggestion {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum CompletionContext {
     Command {
         prefix: String,

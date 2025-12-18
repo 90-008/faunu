@@ -1,5 +1,4 @@
 use crate::completion::context::get_command_signature;
-use crate::completion::files::generate_file_suggestions;
 use crate::completion::helpers::to_char_span;
 use crate::completion::types::{CompletionContext, Suggestion};
 use crate::completion::variables::*;
@@ -65,13 +64,13 @@ pub fn generate_command_suggestions(
             },
             name: display_name,
             description: desc.map(|d| d.to_string()),
-            is_command: true,
             span_start: span.start,
             span_end: span.end,
         });
         cmd_count += 1;
     }
     console_log!("[completion] Found {cmd_count} command suggestions");
+    suggestions.sort();
     suggestions
 }
 
@@ -83,9 +82,12 @@ pub fn generate_argument_suggestions(
 ) -> Vec<Suggestion> {
     console_log!("[completion] Generating Argument suggestions with prefix: {prefix:?}");
     // File completion
-    let file_suggestions = generate_file_suggestions(&prefix, span, root, None, input);
-    let file_count = file_suggestions.len();
-    console_log!("[completion] Found {file_count} file suggestions");
+    let mut file_suggestions = generate_file_suggestions(&prefix, span, root, None, input);
+    console_log!(
+        "[completion] Found {file_count} file suggestions",
+        file_count = file_suggestions.len()
+    );
+    file_suggestions.sort();
     file_suggestions
 }
 
@@ -127,7 +129,6 @@ pub fn generate_flag_suggestions(
                     Suggestion {
                         name: flag_name.clone(),
                         description: Some(flag.desc.clone()),
-                        is_command: false,
                         rendered: {
                             let flag_colored = ansi_term::Color::Cyan.bold().paint(&flag_name);
                             format!("{flag_colored} {}", flag.desc)
@@ -185,6 +186,7 @@ pub fn generate_flag_suggestions(
     } else {
         console_log!("[completion] Could not find signature for command: {command_name:?}");
     }
+    suggestions.sort();
     suggestions
 }
 
@@ -309,7 +311,7 @@ pub fn generate_command_argument_suggestions(
 
         if let Some(arg) = arg {
             // Check the SyntaxShape to determine completion type
-            // Only suggest files/dirs for Filepath type (or "any" when type is unknown)
+            // Only suggest files/dirs for Filepath type
             match &arg.shape {
                 nu_protocol::SyntaxShape::Filepath | nu_protocol::SyntaxShape::Any => {
                     // File/directory completion
@@ -325,26 +327,6 @@ pub fn generate_command_argument_suggestions(
                     console_log!(
                         "[completion] Found {file_count} file suggestions for argument {arg_index}"
                     );
-
-                    // If the argument is optional and of type Any or Filepath, also show subcommands
-                    if is_optional {
-                        console_log!(
-                            "[completion] Argument {arg_index} is optional and of type {:?}, also showing subcommands",
-                            arg.shape
-                        );
-                        let subcommand_suggestions = generate_command_suggestions(
-                            input,
-                            working_set,
-                            prefix.clone(),
-                            span,
-                            Some(command_name.clone()),
-                        );
-                        let subcommand_count = subcommand_suggestions.len();
-                        suggestions.extend(subcommand_suggestions);
-                        console_log!(
-                            "[completion] Found {subcommand_count} subcommand suggestions"
-                        );
-                    }
                 }
                 _ => {
                     // For other types, don't suggest files
@@ -369,6 +351,7 @@ pub fn generate_command_argument_suggestions(
         let file_suggestions = generate_file_suggestions(&prefix, span, root, None, input);
         suggestions.extend(file_suggestions);
     }
+    suggestions.sort();
     suggestions
 }
 
@@ -396,7 +379,6 @@ pub fn generate_variable_suggestions(
             suggestions.push(Suggestion {
                 name: var_name.clone(),
                 description: Some(var_type.clone()),
-                is_command: false,
                 rendered: {
                     let var_colored = ansi_term::Color::Blue.bold().paint(&var_name);
                     format!("{var_colored} {var_type}")
@@ -409,6 +391,7 @@ pub fn generate_variable_suggestions(
     }
 
     console_log!("[completion] Found {var_count} variable suggestions");
+    suggestions.sort();
     suggestions
 }
 
@@ -451,7 +434,6 @@ pub fn generate_cell_path_suggestions(
                 suggestions.push(Suggestion {
                     name: col_name.clone(),
                     description: Some(type_str.to_string()),
-                    is_command: false,
                     rendered: {
                         let col_colored = ansi_term::Color::Yellow.paint(&col_name);
                         format!("{col_colored} {type_str}")
@@ -478,70 +460,120 @@ pub fn generate_cell_path_suggestions(
             console_log!("[completion] Variable type: {ty:?}", ty = var_info.ty);
         }
     }
+    suggestions.sort();
     suggestions
+}
+
+pub fn generate_file_suggestions(
+    prefix: &str,
+    span: Span,
+    root: &std::sync::Arc<vfs::VfsPath>,
+    description: Option<String>,
+    input: &str,
+) -> Vec<Suggestion> {
+    let (dir, file_prefix) = prefix
+        .rfind('/')
+        .map(|idx| (&prefix[..idx + 1], &prefix[idx + 1..]))
+        .unwrap_or(("", prefix));
+
+    let dir_to_join = (dir.len() > 1 && dir.ends_with('/'))
+        .then(|| &dir[..dir.len() - 1])
+        .unwrap_or(dir);
+
+    let target_dir = if !dir.is_empty() {
+        match root.join(dir_to_join) {
+            Ok(d) if d.is_dir().unwrap_or(false) => Some(d),
+            _ => None,
+        }
+    } else {
+        Some(root.join("").unwrap())
+    };
+
+    let mut file_suggestions = Vec::new();
+    if let Some(d) = target_dir {
+        if let Ok(iterator) = d.read_dir() {
+            let char_span = to_char_span(input, span);
+            for entry in iterator {
+                let name = entry.filename();
+                if name.starts_with(file_prefix) {
+                    let full_completion = format!("{}{}", dir, name);
+                    file_suggestions.push(Suggestion {
+                        name: full_completion.clone(),
+                        description: description.clone(),
+                        rendered: full_completion,
+                        span_start: char_span.start,
+                        span_end: char_span.end,
+                    });
+                }
+            }
+        }
+    }
+    file_suggestions
 }
 
 pub fn generate_suggestions(
     input: &str,
-    context: Option<CompletionContext>,
+    contexts: Vec<CompletionContext>,
     working_set: &StateWorkingSet,
     engine_guard: &EngineState,
     stack_guard: &Stack,
     root: &std::sync::Arc<vfs::VfsPath>,
     byte_pos: usize,
 ) -> Vec<Suggestion> {
-    console_log!("context: {context:?}");
+    console_log!("contexts: {contexts:?}");
 
-    match context {
-        Some(CompletionContext::Command {
-            prefix,
-            span,
-            parent_command,
-        }) => generate_command_suggestions(input, working_set, prefix, span, parent_command),
-        Some(CompletionContext::Argument { prefix, span }) => {
-            generate_argument_suggestions(input, prefix, span, root)
-        }
-        Some(CompletionContext::Flag {
-            prefix,
-            span,
-            command_name,
-        }) => generate_flag_suggestions(input, engine_guard, prefix, span, command_name),
-        Some(CompletionContext::CommandArgument {
-            prefix,
-            span,
-            command_name,
-            arg_index,
-        }) => generate_command_argument_suggestions(
-            input,
-            engine_guard,
-            working_set,
-            prefix,
-            span,
-            command_name,
-            arg_index,
-            root,
-        ),
-        Some(CompletionContext::Variable { prefix, span }) => {
-            generate_variable_suggestions(input, working_set, prefix, span, byte_pos)
-        }
-        Some(CompletionContext::CellPath {
-            prefix,
-            span,
-            var_id,
-            path_so_far,
-        }) => generate_cell_path_suggestions(
-            input,
-            working_set,
-            engine_guard,
-            stack_guard,
-            prefix,
-            span,
-            var_id,
-            path_so_far,
-        ),
-        _ => {
-            console_log!("[completion] Context is None, no suggestions generated");
-            Vec::new()
-        }
+    let mut suggestions = Vec::new();
+    for context in contexts {
+        let mut sug = match context {
+            CompletionContext::Command {
+                prefix,
+                span,
+                parent_command,
+            } => generate_command_suggestions(input, working_set, prefix, span, parent_command),
+            CompletionContext::Argument { prefix, span } => {
+                generate_argument_suggestions(input, prefix, span, root)
+            }
+            CompletionContext::Flag {
+                prefix,
+                span,
+                command_name,
+            } => generate_flag_suggestions(input, engine_guard, prefix, span, command_name),
+            CompletionContext::CommandArgument {
+                prefix,
+                span,
+                command_name,
+                arg_index,
+            } => generate_command_argument_suggestions(
+                input,
+                engine_guard,
+                working_set,
+                prefix,
+                span,
+                command_name,
+                arg_index,
+                root,
+            ),
+            CompletionContext::Variable { prefix, span } => {
+                generate_variable_suggestions(input, working_set, prefix, span, byte_pos)
+            }
+            CompletionContext::CellPath {
+                prefix,
+                span,
+                var_id,
+                path_so_far,
+            } => generate_cell_path_suggestions(
+                input,
+                working_set,
+                engine_guard,
+                stack_guard,
+                prefix,
+                span,
+                var_id,
+                path_so_far,
+            ),
+        };
+        suggestions.append(&mut sug);
     }
+
+    suggestions
 }

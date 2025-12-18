@@ -18,7 +18,7 @@ impl Command for Source {
 
     fn signature(&self) -> Signature {
         Signature::build(self.name())
-            .required("filename", SyntaxShape::String, "the file to source")
+            .required("filename", SyntaxShape::Filepath, "the file to source")
             .input_output_type(Type::Nothing, Type::Nothing)
             .category(Category::Core)
     }

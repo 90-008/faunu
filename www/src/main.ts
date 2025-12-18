@@ -14,7 +14,6 @@ import "@xterm/xterm/css/xterm.css";
 type Candidate = {
   name: string;
   description: string;
-  is_command: boolean;
   rendered: string;
   span_start: number;
   span_end: number;
@@ -300,7 +299,6 @@ async function bootstrap() {
     completionCandidates = matches.map((cmd) => ({
       name: cmd,
       description: "",
-      is_command: true,
       rendered: cmd,
       span_start: 0,
       span_end: currentLine.length,
