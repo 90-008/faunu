@@ -23,7 +23,7 @@
             nodejs-slim_latest deno
             nodePackages.svelte-language-server
             nodePackages.typescript-language-server
-            rustc rust-analyzer cargo wasm-pack wasm-bindgen-cli lld rustfmt binaryen
+            rustc rust-analyzer cargo wasm-pack wasm-bindgen-cli_0_2_104 lld rustfmt binaryen
           ];
           shellHook = ''
             export PATH="$PATH:$PWD/node_modules/.bin"

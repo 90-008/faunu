@@ -3,7 +3,7 @@
   lib,
   wasm-pack,
   binaryen,
-  wasm-bindgen-cli,
+  wasm-bindgen-cli_0_2_104,
   lld,
   stdenv,
   ...
@@ -34,7 +34,7 @@ let
       };
     };
 
-    nativeBuildInputs = [wasm-pack wasm-bindgen-cli lld];
+    nativeBuildInputs = [wasm-pack wasm-bindgen-cli_0_2_104 lld];
 
     phases = ["unpackPhase" "buildPhase"];
 
