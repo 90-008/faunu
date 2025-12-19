@@ -3,7 +3,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use crate::globals::{get_pwd, to_shell_err};
+use crate::{error::to_shell_err, globals::get_pwd};
 use jacquard::chrono;
 use nu_engine::CallExt;
 use nu_protocol::{

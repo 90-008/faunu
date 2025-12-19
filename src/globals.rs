@@ -1,8 +1,5 @@
 use futures::stream::AbortHandle;
-use nu_protocol::{
-    ShellError, Signal, Span,
-    engine::{EngineState, StateDelta},
-};
+use nu_protocol::Signal;
 use rust_embed::RustEmbed;
 use std::{
     collections::HashMap,
@@ -12,7 +9,7 @@ use std::{
     },
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
-use vfs::{EmbeddedFS, OverlayFS, VfsError, VfsPath, error::VfsErrorKind};
+use vfs::{EmbeddedFS, OverlayFS, VfsPath};
 use wasm_bindgen::prelude::*;
 
 use crate::memory_fs::MemoryFS;
@@ -46,23 +43,6 @@ pub fn get_pwd() -> Arc<VfsPath> {
 
 pub fn set_pwd(path: Arc<VfsPath>) {
     *PWD.get_or_init(|| RwLock::new(get_vfs())).write().unwrap() = path;
-}
-
-pub fn to_shell_err(span: Span) -> impl Fn(VfsError) -> ShellError {
-    move |vfs_error: VfsError| ShellError::GenericError {
-        error: (match vfs_error.kind() {
-            VfsErrorKind::DirectoryExists
-            | VfsErrorKind::FileExists
-            | VfsErrorKind::FileNotFound
-            | VfsErrorKind::InvalidPath => "path error",
-            _ => "io error",
-        })
-        .to_string(),
-        msg: vfs_error.to_string(),
-        span: Some(span),
-        help: None,
-        inner: vec![],
-    }
 }
 
 pub struct TaskInfo {
@@ -153,25 +133,25 @@ pub fn kill_task_by_id(id: usize) -> bool {
     false
 }
 
-static PENDING_DELTAS: OnceLock<Mutex<Vec<StateDelta>>> = OnceLock::new();
+// static PENDING_DELTAS: OnceLock<Mutex<Vec<StateDelta>>> = OnceLock::new();
 
-pub fn queue_delta(delta: StateDelta) {
-    let _ = PENDING_DELTAS.get_or_init(|| Mutex::new(Vec::new()));
-    if let Ok(mut guard) = PENDING_DELTAS.get().unwrap().lock() {
-        guard.push(delta);
-    }
-}
+// pub fn queue_delta(delta: StateDelta) {
+//     let _ = PENDING_DELTAS.get_or_init(|| Mutex::new(Vec::new()));
+//     if let Ok(mut guard) = PENDING_DELTAS.get().unwrap().lock() {
+//         guard.push(delta);
+//     }
+// }
 
-pub fn apply_pending_deltas(engine_state: &mut EngineState) -> Result<(), ShellError> {
-    if let Some(mutex) = PENDING_DELTAS.get() {
-        if let Ok(mut guard) = mutex.lock() {
-            for delta in guard.drain(..) {
-                engine_state.merge_delta(delta)?;
-            }
-        }
-    }
-    Ok(())
-}
+// pub fn apply_pending_deltas(engine_state: &mut EngineState) -> Result<(), ShellError> {
+//     if let Some(mutex) = PENDING_DELTAS.get() {
+//         if let Ok(mut guard) = mutex.lock() {
+//             for delta in guard.drain(..) {
+//                 engine_state.merge_delta(delta)?;
+//             }
+//         }
+//     }
+//     Ok(())
+// }
 
 pub static CONSOLE_CALLBACK: OnceLock<Mutex<Option<CallbackWrapper>>> = OnceLock::new();
 
@@ -183,12 +163,7 @@ pub fn register_console_callback(f: js_sys::Function) {
     }
 }
 
-pub fn print_to_console(msg: &str, is_cmd: bool) -> Result<(), ShellError> {
-    // if is_interrupted() {
-    //     return Err(ShellError::Interrupted {
-    //         span: Span::unknown(),
-    //     });
-    // }
+pub fn print_to_console(msg: &str, is_cmd: bool) {
     if let Some(mutex) = CONSOLE_CALLBACK.get() {
         if let Ok(guard) = mutex.lock() {
             if let Some(cb) = guard.as_ref() {
@@ -199,7 +174,6 @@ pub fn print_to_console(msg: &str, is_cmd: bool) -> Result<(), ShellError> {
             }
         }
     }
-    Ok(())
 }
 
 pub fn current_time() -> Option<SystemTime> {
@@ -215,7 +189,6 @@ thread_local! {
     pub static INTERRUPT_BUFFER: RefCell<Option<Int32Array>> = RefCell::new(None);
 }
 
-/// Called from JS to pass the SharedArrayBuffer view
 #[wasm_bindgen]
 pub fn set_interrupt_buffer(buffer: Int32Array) {
     INTERRUPT_BUFFER.with(|b| {
@@ -223,13 +196,9 @@ pub fn set_interrupt_buffer(buffer: Int32Array) {
     });
 }
 
-/// Call this function periodically in your long-running loops!
-/// Returns `true` if an interrupt was requested.
 pub fn check_interrupt() -> bool {
     INTERRUPT_BUFFER.with(|b| {
         if let Some(buffer) = b.borrow().as_ref() {
-            // Check index 0. If it's 1, an interrupt occurred.
-            // We use Atomics to ensure we see the value written by the main thread.
             match js_sys::Atomics::load(buffer, 0) {
                 Ok(1) => true,
                 _ => false,

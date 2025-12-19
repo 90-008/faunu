@@ -1,4 +1,5 @@
-use crate::globals::{get_pwd, print_to_console, register_task, remove_task, to_shell_err};
+use crate::error::to_shell_err;
+use crate::globals::{get_pwd, print_to_console, register_task, remove_task};
 use anyhow::{Result, anyhow};
 use futures::future::{AbortHandle, Abortable};
 use jacquard::types::aturi::AtUri;

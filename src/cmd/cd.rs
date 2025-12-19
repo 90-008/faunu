@@ -1,4 +1,7 @@
-use crate::globals::{get_pwd, get_vfs, set_pwd, to_shell_err};
+use crate::{
+    error::to_shell_err,
+    globals::{get_pwd, get_vfs, set_pwd},
+};
 use nu_engine::CallExt;
 use nu_protocol::{
     Category, IntoValue, PipelineData, ShellError, Signature, SyntaxShape, Type,

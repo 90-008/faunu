@@ -1,4 +1,5 @@
 pub mod cd;
+pub mod eval;
 pub mod fetch;
 pub mod job;
 pub mod job_kill;
@@ -12,10 +13,11 @@ pub mod pwd;
 pub mod random;
 pub mod rm;
 pub mod save;
-pub mod source;
+pub mod source_file;
 pub mod sys;
 
 pub use cd::Cd;
+pub use eval::Eval;
 pub use fetch::Fetch;
 pub use job::Job;
 pub use job_kill::JobKill;
@@ -29,5 +31,5 @@ pub use pwd::Pwd;
 pub use random::Random;
 pub use rm::Rm;
 pub use save::Save;
-pub use source::Source;
+pub use source_file::SourceFile;
 pub use sys::Sys;

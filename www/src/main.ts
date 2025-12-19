@@ -404,29 +404,34 @@ async function bootstrap() {
                 "\x1b[33mengine is still loading, please wait (_ _ )zZ...\x1b[0m\r\n",
               );
             } else {
-              // ASYNC execution
-              const output: string | undefined = await callWorker(
-                "run",
-                trimmed,
-              );
-              if (output) {
-                term.write(output.replace(/\n/g, "\r\n"));
-                if (output && !output.endsWith("\n")) {
-                  term.write("\r\n");
+              try {
+                const output: string | undefined = await callWorker(
+                  "run",
+                  trimmed,
+                );
+                if (output) {
+                  term.write(output.replace(/\n/g, "\r\n"));
+                  if (output && !output.endsWith("\n")) {
+                    term.write("\r\n");
+                  }
                 }
+
+                // update history
+                const idx = history.indexOf(trimmed);
+                if (idx >= 0) history.splice(idx, 1);
+                history.push(trimmed);
+                historyIndex = history.length;
+              } catch (error) {
+                term.write(`${error}`.replace(/\n/g, "\r\n"));
               }
 
-              // Update cached PWD after command execution (cd, etc)
+              // update pwd
               cachedPwd = await callWorker("get_pwd");
-
-              // Update History
-              const idx = history.indexOf(trimmed);
-              if (idx >= 0) history.splice(idx, 1);
-              history.push(trimmed);
-              historyIndex = history.length;
             }
           } catch (err) {
-            term.write(`\x1b[31mfatal: ${err}\x1b[0m\r\n`);
+            term.write(
+              `\x1b[31mfatal: ${err}\x1b[0m\r\n`.replace(/\n/g, "\r\n"),
+            );
           } finally {
             isRunningCommand = false;
           }
@@ -647,7 +652,6 @@ async function bootstrap() {
   await readyPromise;
 
   await callWorker("set-interrupt-buffer", interruptBuffer);
-  await callWorker("run", "open welcome.txt");
 
   term.write(getPrompt());
 

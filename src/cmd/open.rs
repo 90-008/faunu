@@ -1,6 +1,6 @@
 use std::ops::Not;
 
-use crate::globals::{get_pwd, to_shell_err};
+use crate::{error::to_shell_err, globals::get_pwd};
 use nu_command::{FromCsv, FromJson, FromOds, FromToml, FromTsv, FromXlsx, FromXml, FromYaml};
 use nu_engine::CallExt;
 use nu_protocol::{

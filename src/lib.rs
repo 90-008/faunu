@@ -1,7 +1,6 @@
 use async_lock::{RwLock, RwLockReadGuard, RwLockUpgradableReadGuard, RwLockWriteGuard};
-use futures::FutureExt;
+use futures::TryFutureExt;
 use js_sys::Promise;
-use miette::Report;
 use nu_cmd_base::hook::eval_hook;
 use nu_cmd_extra::add_extra_command_context;
 use nu_cmd_lang::create_default_context;
@@ -12,6 +11,7 @@ use nu_protocol::{
     engine::{EngineState, Stack, StateWorkingSet},
 };
 use std::{
+    fmt::Write,
     io::Cursor,
     sync::{Arc, OnceLock},
 };
@@ -28,14 +28,11 @@ pub mod memory_fs;
 
 use crate::{
     cmd::{
-        Cd, Fetch, Job, JobKill, JobList, Ls, Mkdir, Mv, Open, Print, Pwd, Random, Rm, Save, Source, Sys,
-        source::eval_file,
+        Cd, Eval, Fetch, Job, JobKill, JobList, Ls, Mkdir, Mv, Open, Print, Pwd, Random, Rm, Save,
+        SourceFile, Sys,
     },
     default_context::add_shell_command_context,
-    error::format_error,
-    globals::{
-        InterruptBool, apply_pending_deltas, get_pwd, get_vfs, print_to_console, set_interrupt,
-    },
+    globals::{InterruptBool, get_pwd, get_vfs, print_to_console, set_interrupt},
 };
 use error::CommandError;
 
@@ -90,19 +87,22 @@ async fn write_stack() -> RwLockWriteGuard<'static, Stack> {
 }
 
 #[wasm_bindgen]
-pub fn init_engine() -> String {
+pub fn init_engine() -> Promise {
     std::panic::set_hook(Box::new(panic_hook));
-    init_engine_internal().map_or_else(|err| format!("error: {err}"), |_| String::new())
+    future_to_promise(
+        init_engine_internal()
+            .map_ok(|_| JsValue::null())
+            .map_err(|s| JsValue::from_str(&s)),
+    )
 }
 
-fn init_engine_internal() -> Result<(), Report> {
-    let mut stack = Stack::new();
+async fn init_engine_internal() -> Result<(), String> {
     let mut engine_state = create_default_context();
     engine_state = add_shell_command_context(engine_state);
     engine_state = add_extra_command_context(engine_state);
 
     let mut working_set = StateWorkingSet::new(&engine_state);
-    let decls: [Box<dyn Command>; 16] = [
+    let decls: [Box<dyn Command>; 17] = [
         Box::new(Ls),
         Box::new(Open),
         Box::new(Save),
@@ -112,7 +112,8 @@ fn init_engine_internal() -> Result<(), Report> {
         Box::new(Cd),
         Box::new(Rm),
         Box::new(Fetch),
-        Box::new(Source),
+        Box::new(SourceFile),
+        Box::new(Eval),
         Box::new(Job),
         Box::new(JobList),
         Box::new(JobKill),
@@ -123,7 +124,9 @@ fn init_engine_internal() -> Result<(), Report> {
     for decl in decls {
         working_set.add_decl(decl);
     }
-    engine_state.merge_delta(working_set.delta)?;
+    engine_state
+        .merge_delta(working_set.delta)
+        .map_err(CommandError::from)?;
 
     let mut config = Config::default();
     config.use_ansi_coloring = true.into();
@@ -134,36 +137,43 @@ fn init_engine_internal() -> Result<(), Report> {
 
     engine_state.set_signals(Signals::new(Arc::new(InterruptBool)));
 
+    ENGINE_STATE
+        .set(RwLock::new(engine_state))
+        .map_err(|_| "ENGINE_STATE was already set!?".to_string())?;
+    STACK
+        .set(RwLock::new(Stack::new()))
+        .map_err(|_| "STACK was already set!?".to_string())?;
+
+    let mut startup_script = String::new();
+
     // source our "nu rc"
     let rc_path = get_vfs().join("/.env.nu").ok();
     let rc = rc_path.and_then(|env| env.exists().ok().and_then(|ok| ok.then_some(env)));
     if let Some(env) = rc {
-        web_sys::console::log_1(&format!("Loading rc file: {}", env.as_str()).into());
-        eval_file(&engine_state, &mut stack, &env, Span::unknown())?;
+        writeln!(&mut startup_script, "eval file {path}", path = env.as_str()).unwrap();
     }
 
-    ENGINE_STATE
-        .set(RwLock::new(engine_state))
-        .map_err(|_| miette::miette!("ENGINE_STATE was already set!?"))?;
-    STACK
-        .set(RwLock::new(stack))
-        .map_err(|_| miette::miette!("STACK was already set!?"))?;
+    // add some aliases for some commands
+    let aliases = ["alias l = ls", "alias la = ls -a", "alias . = eval file"];
+    for alias in aliases {
+        writeln!(&mut startup_script, "{alias}").unwrap();
+    }
 
-    // web_sys::console::log_1(&"Hello, World!".into());
+    run_command_internal(&startup_script).await?;
 
     Ok(())
 }
 
-async fn run_command_internal(input: &str) -> Result<(), CommandError> {
+async fn run_command_internal(input: &str) -> Result<(), String> {
     let mut engine_state = unsafe { ENGINE_STATE.get().unwrap_unchecked() }
         .upgradable_read()
         .await;
     let (mut working_set, signals, config) = {
         let mut write_engine_state = RwLockUpgradableReadGuard::upgrade(engine_state).await;
-        apply_pending_deltas(&mut write_engine_state).map_err(|e| CommandError {
-            error: Report::new(e),
-            start_offset: 0,
-        })?;
+        // apply_pending_deltas(&mut write_engine_state).map_err(|e| CommandError {
+        //     error: Report::new(e),
+        //     start_offset: 0,
+        // })?;
         write_engine_state.add_env_var(
             "PWD".to_string(),
             get_pwd_string().into_value(Span::unknown()),
@@ -179,22 +189,17 @@ async fn run_command_internal(input: &str) -> Result<(), CommandError> {
     let start_offset = working_set.next_span_start();
     let block = parse(&mut working_set, Some("entry"), input.as_bytes(), false);
 
-    let cmd_err = |err: ShellError| CommandError {
-        error: Report::new(err),
-        start_offset,
-    };
+    let cmd_err = |err: ShellError| CommandError::new(err, input).with_start_offset(start_offset);
 
     if let Some(err) = working_set.parse_errors.into_iter().next() {
-        return Err(CommandError {
-            error: Report::new(err),
-            start_offset,
-        });
+        return Err(CommandError::new(err, input)
+            .with_start_offset(start_offset)
+            .into());
     }
     if let Some(err) = working_set.compile_errors.into_iter().next() {
-        return Err(CommandError {
-            error: Report::new(err),
-            start_offset,
-        });
+        return Err(CommandError::new(err, input)
+            .with_start_offset(start_offset)
+            .into());
     }
     let delta = working_set.delta;
 
@@ -202,15 +207,14 @@ async fn run_command_internal(input: &str) -> Result<(), CommandError> {
         let mut write_engine_state = RwLockUpgradableReadGuard::upgrade(engine_state).await;
         let mut stack = write_stack().await;
         write_engine_state.merge_delta(delta).map_err(cmd_err)?;
+        engine_state = RwLockWriteGuard::downgrade_to_upgradable(write_engine_state);
         let res = eval_block::<nu_protocol::debugger::WithoutDebug>(
-            &mut write_engine_state,
+            &engine_state,
             &mut stack,
             &block,
             PipelineData::Empty,
         );
-        // Apply any deltas queued during command execution (e.g., from source-file)
-        apply_pending_deltas(&mut write_engine_state).map_err(cmd_err)?;
-        engine_state = RwLockWriteGuard::downgrade_to_upgradable(write_engine_state);
+        // apply_pending_deltas(&mut write_engine_state).map_err(cmd_err)?;
         res
     };
 
@@ -224,7 +228,7 @@ async fn run_command_internal(input: &str) -> Result<(), CommandError> {
     let pipeline_data = match pipeline_data {
         PipelineData::Empty => return Ok(()),
         PipelineData::Value(Value::Error { error, .. }, _) => {
-            return Err(cmd_err(*error));
+            return Err(cmd_err(*error).into());
         }
         PipelineData::ByteStream(s, m) => match (s.span(), s.type_(), s.reader()) {
             (span, ty, Some(r)) => {
@@ -272,12 +276,12 @@ async fn run_command_internal(input: &str) -> Result<(), CommandError> {
     match res {
         PipelineData::Empty => {}
         PipelineData::Value(v, _) => {
-            print_to_console(&v.to_expanded_string("\n", &config), true).map_err(cmd_err)?;
+            print_to_console(&v.to_expanded_string("\n", &config), true);
         }
         PipelineData::ByteStream(s, _) => {
             for line in s.lines().into_iter().flatten() {
                 let out = line.map_err(cmd_err)?; // TODO: do we turn this into a Value ??? or is returning err fine
-                print_to_console(&out, true).map_err(cmd_err)?;
+                print_to_console(&out, true);
             }
         }
         PipelineData::ListStream(s, _) => {
@@ -286,7 +290,7 @@ async fn run_command_internal(input: &str) -> Result<(), CommandError> {
                     .unwrap_error()
                     .map_err(cmd_err)?
                     .to_expanded_string("\n", &config);
-                print_to_console(&out, true).map_err(cmd_err)?;
+                print_to_console(&out, true);
             }
         }
     }
@@ -300,23 +304,8 @@ pub fn run_command(input: String) -> Promise {
 
     future_to_promise(async move {
         run_command_internal(&input)
-            .map(|res| {
-                res.map_or_else(
-                    |cmd_err| {
-                        Some(format_error(
-                            cmd_err.error,
-                            input.to_owned(),
-                            cmd_err.start_offset,
-                        ))
-                    },
-                    |_| None,
-                )
-            })
-            .map(|res| {
-                Ok(res
-                    .map(|s| JsValue::from_str(&s))
-                    .unwrap_or_else(JsValue::null))
-            })
+            .map_ok(|_| JsValue::null())
+            .map_err(|s| JsValue::from_str(&s))
             .await
     })
 }

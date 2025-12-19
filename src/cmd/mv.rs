@@ -1,6 +1,6 @@
 use std::io::{Read, Write};
 
-use crate::globals::{get_pwd, to_shell_err};
+use crate::{error::to_shell_err, globals::get_pwd};
 use nu_engine::CallExt;
 use nu_protocol::{
     Category, PipelineData, ShellError, Signature, SyntaxShape, Type,

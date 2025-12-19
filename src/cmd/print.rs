@@ -32,16 +32,15 @@ impl Command for Print {
         _input: PipelineData,
     ) -> Result<PipelineData, ShellError> {
         let rest: Vec<Value> = call.rest(engine_state, stack, 0)?;
-        
+
         let mut parts = Vec::new();
         for value in rest {
             let s = value.to_expanded_string(" ", &engine_state.config);
             parts.push(s);
         }
         let output = parts.join(" ");
-        print_to_console(&output, true)?;
-        
+        print_to_console(&output, true);
+
         Ok(PipelineData::Empty)
     }
 }
-

@@ -11,8 +11,9 @@ import init, {
 
 // Initialize WASM
 await init();
-const error = init_engine();
-if (error) {
+try {
+  await init_engine();
+} catch (error) {
   console.error(error);
 }
 
