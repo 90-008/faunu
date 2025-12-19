@@ -1,11 +1,13 @@
+use std::sync::Arc;
+
 use crate::{
     error::{CommandError, to_shell_err},
-    globals::{get_pwd, print_to_console},
+    globals::{get_pwd, get_vfs, print_to_console, set_pwd},
 };
 use nu_engine::{CallExt, get_eval_block_with_early_return};
 use nu_parser::parse;
 use nu_protocol::{
-    Category, PipelineData, ShellError, Signature, SyntaxShape, Type,
+    Category, PipelineData, ShellError, Signature, Span, SyntaxShape, Type, Value,
     engine::{Command, EngineState, Stack, StateWorkingSet},
 };
 
@@ -38,10 +40,14 @@ impl Command for SourceFile {
         let span = call.arguments_span();
         let path: String = call.req(engine_state, stack, 0)?;
 
-        let path = get_pwd().join(&path).map_err(to_shell_err(span))?;
+        let pwd = get_pwd();
+
+        let path = pwd.join(&path).map_err(to_shell_err(span))?;
         let contents = path.read_to_string().map_err(to_shell_err(span))?;
 
+        set_pwd(path.parent().into());
         let res = eval(engine_state, stack, &contents, Some(&path.filename()));
+        set_pwd(pwd);
 
         match res {
             Ok(d) => Ok(d),
