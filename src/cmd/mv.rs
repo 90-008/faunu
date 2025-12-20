@@ -1,9 +1,14 @@
 use std::io::{Read, Write};
 
-use crate::{error::to_shell_err, globals::get_pwd};
+use crate::{
+    cmd::glob::{expand_path, GlobOptions},
+    error::to_shell_err,
+    globals::{get_pwd, get_vfs},
+};
+use std::sync::Arc;
 use nu_engine::CallExt;
 use nu_protocol::{
-    Category, PipelineData, ShellError, Signature, SyntaxShape, Type,
+    Category, PipelineData, ShellError, Signature, SyntaxShape, Type, Value,
     engine::{Command, EngineState, Stack},
 };
 use vfs::{VfsError, VfsFileType};
@@ -20,7 +25,7 @@ impl Command for Mv {
         Signature::build("mv")
             .required(
                 "source",
-                SyntaxShape::Filepath,
+                SyntaxShape::OneOf(vec![SyntaxShape::Filepath, SyntaxShape::GlobPattern]),
                 "path to the file or directory to move",
             )
             .required(
@@ -43,11 +48,24 @@ impl Command for Mv {
         call: &nu_protocol::engine::Call,
         _input: PipelineData,
     ) -> Result<PipelineData, ShellError> {
-        let source_path: String = call.req(engine_state, stack, 0)?;
+        let source_value: Value = call.req(engine_state, stack, 0)?;
         let dest_path: String = call.req(engine_state, stack, 1)?;
 
+        let source_str = match source_value {
+            Value::String { val, .. } | Value::Glob { val, .. } => val,
+            _ => {
+                return Err(ShellError::GenericError {
+                    error: "invalid source path".into(),
+                    msg: "source must be a string or glob pattern".into(),
+                    span: Some(call.arguments_span()),
+                    help: None,
+                    inner: vec![],
+                });
+            }
+        };
+
         // Prevent moving root
-        if source_path == "/" {
+        if source_str == "/" {
             return Err(ShellError::GenericError {
                 error: "cannot move root".to_string(),
                 msg: "refusing to move root directory".to_string(),
@@ -57,24 +75,61 @@ impl Command for Mv {
             });
         }
 
-        // Resolve source relative to PWD (or absolute if path starts with '/')
-        let source = get_pwd()
-            .join(source_path.trim_end_matches('/'))
-            .map_err(to_shell_err(call.arguments_span()))?;
+        // Expand source path (glob or single) into list of paths
+        let is_absolute = source_str.starts_with('/');
+        let base_path: Arc<vfs::VfsPath> = if is_absolute {
+            get_vfs()
+        } else {
+            get_pwd()
+        };
 
-        // Resolve destination relative to PWD (or absolute if path starts with '/')
+        let options = GlobOptions {
+            max_depth: None,
+            no_dirs: false,
+            no_files: false,
+        };
+
+        let matches = expand_path(&source_str, base_path.clone(), options)?;
+        let is_glob = matches.len() > 1 || source_str.contains('*') || source_str.contains('?') || source_str.contains('[') || source_str.contains("**");
+
+        // Resolve destination
         let dest = get_pwd()
             .join(dest_path.trim_end_matches('/'))
             .map_err(to_shell_err(call.arguments_span()))?;
 
-        // Check that source exists
-        let meta = source
-            .metadata()
-            .map_err(to_shell_err(call.arguments_span()))?;
+        // For glob patterns, destination must be a directory
+        if is_glob {
+            let dest_meta = dest.metadata().map_err(to_shell_err(call.arguments_span()))?;
+            if dest_meta.file_type != VfsFileType::Directory {
+                return Err(ShellError::GenericError {
+                    error: "destination must be a directory".to_string(),
+                    msg: "when using glob patterns, destination must be a directory".to_string(),
+                    span: Some(call.arguments_span()),
+                    help: None,
+                    inner: vec![],
+                });
+            }
+        }
 
-        match meta.file_type {
-            VfsFileType::File => move_file(&source, &dest, call.arguments_span())?,
-            VfsFileType::Directory => move_directory(&source, &dest, call.arguments_span())?,
+        // Move each matching file/directory
+        for rel_path in matches {
+            let source = base_path.join(&rel_path).map_err(to_shell_err(call.arguments_span()))?;
+            let source_meta = source.metadata().map_err(to_shell_err(call.arguments_span()))?;
+
+            // Determine destination path
+            let dest_entry = if is_glob {
+                // For glob patterns, use filename in destination directory
+                let filename = rel_path.split('/').last().unwrap_or(&rel_path);
+                dest.join(filename).map_err(to_shell_err(call.arguments_span()))?
+            } else {
+                // For single path, use destination as-is
+                dest.clone()
+            };
+
+            match source_meta.file_type {
+                VfsFileType::File => move_file(&source, &dest_entry, call.arguments_span())?,
+                VfsFileType::Directory => move_directory(&source, &dest_entry, call.arguments_span())?,
+            }
         }
 
         Ok(PipelineData::Empty)

@@ -1,9 +1,11 @@
-use std::{
-    sync::Arc,
-    time::{SystemTime, UNIX_EPOCH},
-};
+use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::{error::to_shell_err, globals::get_pwd};
+use crate::{
+    cmd::glob::{expand_path, GlobOptions},
+    error::to_shell_err,
+    globals::{get_pwd, get_vfs},
+};
+use std::sync::Arc;
 use jacquard::chrono;
 use nu_engine::CallExt;
 use nu_protocol::{
@@ -21,7 +23,11 @@ impl Command for Ls {
 
     fn signature(&self) -> Signature {
         Signature::build("ls")
-            .optional("path", SyntaxShape::Filepath, "the path to list")
+            .optional(
+                "path",
+                SyntaxShape::OneOf(vec![SyntaxShape::Filepath, SyntaxShape::GlobPattern]),
+                "the path to list",
+            )
             .switch(
                 "all",
                 "include hidden paths (that start with a dot)",
@@ -48,37 +54,73 @@ impl Command for Ls {
         call: &nu_protocol::engine::Call,
         _input: PipelineData,
     ) -> Result<PipelineData, ShellError> {
-        let path_arg: Option<String> = call.opt(engine_state, stack, 0)?;
+        let path_arg: Option<Value> = call.opt(engine_state, stack, 0)?;
         let all = call.has_flag(engine_state, stack, "all")?;
         let long = call.has_flag(engine_state, stack, "long")?;
         let full_paths = call.has_flag(engine_state, stack, "full-paths")?;
 
         let pwd = get_pwd();
-        // web_sys::console::log_1(&JsValue::from_str(&format!("{pwd:?}")));
-        // web_sys::console::log_1(&JsValue::from_str(&format!(
-        //     "{:?}",
-        //     pwd.read_dir().map(|a| a.collect::<Vec<_>>())
-        // )));
-        let mut target_dir = pwd.clone();
-        if let Some(path) = path_arg {
-            target_dir = Arc::new(
-                target_dir
-                    .join(path.trim_end_matches('/'))
-                    .map_err(to_shell_err(call.arguments_span()))?,
-            );
-        }
-
         let span = call.head;
-        let entries = target_dir.read_dir().map_err(to_shell_err(span))?;
 
-        let make_record = move |name: &str, metadata: &vfs::VfsMetadata| {
+        // If no path provided, list current directory
+        let (matches, base_path) = if let Some(path_val) = &path_arg {
+            let path_str = match path_val {
+                Value::String { val, .. } | Value::Glob { val, .. } => val,
+                _ => {
+                    return Err(ShellError::GenericError {
+                        error: "invalid path".into(),
+                        msg: "path must be a string or glob pattern".into(),
+                        span: Some(call.arguments_span()),
+                        help: None,
+                        inner: vec![],
+                    });
+                }
+            };
+
+            let is_absolute = path_str.starts_with('/');
+            let base_path: Arc<vfs::VfsPath> = if is_absolute {
+                get_vfs()
+            } else {
+                pwd.clone()
+            };
+
+            let options = GlobOptions {
+                max_depth: None,
+                no_dirs: false,
+                no_files: false,
+            };
+
+            let matches = expand_path(path_str, base_path.clone(), options)?;
+            (matches, base_path)
+        } else {
+            // No path: list current directory entries
+            let entries = pwd.read_dir().map_err(to_shell_err(span))?;
+            let matches: Vec<String> = entries.map(|e| e.filename()).collect();
+            (matches, pwd.clone())
+        };
+
+        let make_record = move |rel_path: &str| {
+            let full_path = base_path.join(rel_path).map_err(to_shell_err(span))?;
+            let metadata = full_path.metadata().map_err(to_shell_err(span))?;
+
+            // Filter hidden files if --all is not set
+            let filename = rel_path.split('/').last().unwrap_or(rel_path);
+            if filename.starts_with('.') && !all {
+                return Ok(None);
+            }
+
             let type_str = match metadata.file_type {
                 vfs::VfsFileType::Directory => "dir",
                 vfs::VfsFileType::File => "file",
             };
 
             let mut record = Record::new();
-            record.push("name", Value::string(name, span));
+            let display_name = if full_paths {
+                full_path.as_str().to_string()
+            } else {
+                rel_path.to_string()
+            };
+            record.push("name", Value::string(display_name, span));
             record.push("type", Value::string(type_str, span));
             record.push("size", Value::filesize(metadata.len as i64, span));
             let mut add_timestamp = |field: &str, timestamp: Option<SystemTime>| {
@@ -100,35 +142,16 @@ impl Command for Ls {
                 add_timestamp("created", metadata.created);
                 add_timestamp("accessed", metadata.accessed);
             }
-            Value::record(record, span)
+            Ok(Some(Value::record(record, span)))
         };
 
-        let entries = entries.into_iter().flat_map(move |entry| {
-            let do_map = || {
-                let name = entry.filename();
-                if name.starts_with('.') && !all {
-                    return Ok(None);
-                }
-                let metadata = entry.metadata().map_err(to_shell_err(span))?;
-
-                let name = if full_paths {
-                    format!("{path}/{name}", path = target_dir.as_str())
-                } else {
-                    let path = target_dir
-                        .as_str()
-                        .trim_start_matches(pwd.as_str())
-                        .trim_start_matches("/");
-                    format!(
-                        "{path}{sep}{name}",
-                        sep = path.is_empty().then_some("").unwrap_or("/"),
-                    )
-                };
-                Ok(Some(make_record(&name, &metadata)))
-            };
-            do_map()
-                .transpose()
-                .map(|res| res.unwrap_or_else(|err| Value::error(err, span)))
-        });
+        let entries = matches
+            .into_iter()
+            .flat_map(move |rel_path| {
+                make_record(&rel_path)
+                    .transpose()
+                    .map(|res| res.unwrap_or_else(|err| Value::error(err, span)))
+            });
 
         let signals = engine_state.signals().clone();
         Ok(PipelineData::list_stream(

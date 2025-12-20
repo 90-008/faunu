@@ -26,6 +26,28 @@ impl Default for GlobOptions {
     }
 }
 
+/// Expand a path (glob pattern or regular path) into a list of matching paths.
+/// If the path is not a glob pattern, returns a single-item list.
+/// Returns a vector of relative paths (relative to the base path).
+pub fn expand_path(
+    path_str: &str,
+    base_path: Arc<vfs::VfsPath>,
+    options: GlobOptions,
+) -> Result<Vec<String>, ShellError> {
+    // Check if it's a glob pattern
+    let is_glob = path_str.contains('*')
+        || path_str.contains('?')
+        || path_str.contains('[')
+        || path_str.contains("**");
+
+    if is_glob {
+        glob_match(path_str, base_path, options)
+    } else {
+        // Single path: return as single-item list
+        Ok(vec![path_str.trim_start_matches('/').to_string()])
+    }
+}
+
 /// Match files and directories using a glob pattern.
 /// Returns a vector of relative paths (relative to the base path) that match the pattern.
 pub fn glob_match(
