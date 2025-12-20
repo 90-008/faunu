@@ -194,7 +194,7 @@ pub fn generate_flag_suggestions(
 pub fn generate_command_argument_suggestions(
     input: &str,
     engine_guard: &EngineState,
-    working_set: &StateWorkingSet,
+    _working_set: &StateWorkingSet,
     prefix: String,
     span: Span,
     command_name: String,
@@ -206,44 +206,6 @@ pub fn generate_command_argument_suggestions(
     );
 
     let mut suggestions = Vec::new();
-
-    // If we're at argument index 0, check if the command has subcommands and add them
-    if arg_index == 0 {
-        let parent_prefix = format!("{} ", command_name);
-        let search_prefix = if prefix.is_empty() {
-            parent_prefix.clone()
-        } else {
-            format!("{}{}", parent_prefix, prefix)
-        };
-
-        let subcommands = working_set
-            .find_commands_by_predicate(|value| value.starts_with(search_prefix.as_bytes()), true);
-
-        if !subcommands.is_empty() {
-            // Command has subcommands - add them to suggestions
-            console_log!(
-                "[completion] Command {command_name:?} has subcommands, adding subcommand suggestions for prefix: {prefix:?}"
-            );
-            let span = to_char_span(input, span);
-            for (_, name, desc, _) in subcommands {
-                let name_str = String::from_utf8_lossy(&name).to_string();
-                if let Some(subcommand_name) = name_str.strip_prefix(&parent_prefix) {
-                    suggestions.push(Suggestion {
-                        rendered: {
-                            let name_colored =
-                                ansi_term::Color::Green.bold().paint(subcommand_name);
-                            let desc_str = desc.as_deref().unwrap_or("<no description>");
-                            format!("{name_colored} {desc_str}")
-                        },
-                        name: subcommand_name.to_string(),
-                        description: desc.map(|d| d.to_string()),
-                        span_start: span.start,
-                        span_end: span.end,
-                    });
-                }
-            }
-        }
-    }
 
     if let Some(signature) = get_command_signature(engine_guard, &command_name) {
         // First, check if we're completing an argument for a flag
