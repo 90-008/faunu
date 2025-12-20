@@ -87,10 +87,10 @@ pub fn glob_match(
     // Normalize pattern: remove leading / for relative matching
     let normalized_pattern = pattern_str.trim_start_matches('/');
     let is_recursive = normalized_pattern.contains("**");
-    
+
     // Collect matching paths
     let mut matches = Vec::new();
-    
+
     fn walk_directory(
         current_path: Arc<vfs::VfsPath>,
         current_relative_path: String,
@@ -111,7 +111,26 @@ pub fn glob_match(
         if let Ok(entries) = current_path.read_dir() {
             for entry in entries {
                 let filename = entry.filename();
-                let entry_path = current_path.join(&filename)
+                let entry_path =
+                    current_path
+                        .join(&filename)
+                        .map_err(|e| ShellError::GenericError {
+                            error: "path error".into(),
+                            msg: e.to_string(),
+                            span: None,
+                            help: None,
+                            inner: vec![],
+                        })?;
+
+                // Build relative path from base
+                let new_relative = if current_relative_path.is_empty() {
+                    filename.clone()
+                } else {
+                    format!("{}/{}", current_relative_path, filename)
+                };
+
+                let metadata = entry_path
+                    .metadata()
                     .map_err(|e| ShellError::GenericError {
                         error: "path error".into(),
                         msg: e.to_string(),
@@ -119,22 +138,7 @@ pub fn glob_match(
                         help: None,
                         inner: vec![],
                     })?;
-                
-                // Build relative path from base
-                let new_relative = if current_relative_path.is_empty() {
-                    filename.clone()
-                } else {
-                    format!("{}/{}", current_relative_path, filename)
-                };
-                
-                let metadata = entry_path.metadata().map_err(|e| ShellError::GenericError {
-                    error: "path error".into(),
-                    msg: e.to_string(),
-                    span: None,
-                    help: None,
-                    inner: vec![],
-                })?;
-                
+
                 // Check if this path matches the pattern
                 // For patterns without path separators, match just the filename
                 // For patterns with path separators, match the full relative path
@@ -143,7 +147,7 @@ pub fn glob_match(
                 } else {
                     &filename
                 };
-                
+
                 if pattern.matches(path_to_match) {
                     let should_include = match metadata.file_type {
                         VfsFileType::Directory => !no_dirs,
@@ -153,14 +157,15 @@ pub fn glob_match(
                         matches.push(new_relative.clone());
                     }
                 }
-                
+
                 // Recursively walk into subdirectories
                 if metadata.file_type == VfsFileType::Directory {
                     // Continue if: recursive pattern, or we haven't reached max depth, or pattern has more components
-                    let should_recurse = is_recursive 
+                    let should_recurse = is_recursive
                         || current_depth < max_depth
-                        || (normalized_pattern.contains('/') && current_depth < normalized_pattern.split('/').count());
-                    
+                        || (normalized_pattern.contains('/')
+                            && current_depth < normalized_pattern.split('/').count());
+
                     if should_recurse {
                         walk_directory(
                             Arc::new(entry_path),
@@ -276,11 +281,7 @@ impl Command for Glob {
 
         // Determine if pattern is absolute (starts with /)
         let is_absolute = pattern_str.starts_with('/');
-        let base_path = if is_absolute {
-            get_vfs()
-        } else {
-            get_pwd()
-        };
+        let base_path = if is_absolute { get_vfs() } else { get_pwd() };
 
         // Use the glob_match function
         let options = GlobOptions {
@@ -288,17 +289,18 @@ impl Command for Glob {
             no_dirs,
             no_files,
         };
-        
+
         let matches = glob_match(&pattern_str, base_path, options)?;
 
         // Convert matches to Value stream
         let signals = engine_state.signals().clone();
-        let values = matches.into_iter().map(move |path| Value::string(path, span));
-        
+        let values = matches
+            .into_iter()
+            .map(move |path| Value::string(path, span));
+
         Ok(PipelineData::list_stream(
             ListStream::new(values, span, signals.clone()),
             None,
         ))
     }
 }
-

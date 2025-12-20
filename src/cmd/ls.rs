@@ -1,17 +1,17 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::{
-    cmd::glob::{expand_path, GlobOptions},
+    cmd::glob::{GlobOptions, expand_path},
     error::to_shell_err,
     globals::{get_pwd, get_vfs},
 };
-use std::sync::Arc;
 use jacquard::chrono;
 use nu_engine::CallExt;
 use nu_protocol::{
     Category, ListStream, PipelineData, Record, ShellError, Signature, SyntaxShape, Type, Value,
     engine::{Command, EngineState, Stack},
 };
+use std::sync::Arc;
 
 #[derive(Clone)]
 pub struct Ls;
@@ -78,11 +78,7 @@ impl Command for Ls {
             };
 
             let is_absolute = path_str.starts_with('/');
-            let base_path: Arc<vfs::VfsPath> = if is_absolute {
-                get_vfs()
-            } else {
-                pwd.clone()
-            };
+            let base_path: Arc<vfs::VfsPath> = if is_absolute { get_vfs() } else { pwd.clone() };
 
             let options = GlobOptions {
                 max_depth: None,
@@ -145,13 +141,11 @@ impl Command for Ls {
             Ok(Some(Value::record(record, span)))
         };
 
-        let entries = matches
-            .into_iter()
-            .flat_map(move |rel_path| {
-                make_record(&rel_path)
-                    .transpose()
-                    .map(|res| res.unwrap_or_else(|err| Value::error(err, span)))
-            });
+        let entries = matches.into_iter().flat_map(move |rel_path| {
+            make_record(&rel_path)
+                .transpose()
+                .map(|res| res.unwrap_or_else(|err| Value::error(err, span)))
+        });
 
         let signals = engine_state.signals().clone();
         Ok(PipelineData::list_stream(

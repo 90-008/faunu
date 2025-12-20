@@ -3,13 +3,13 @@ use crate::{
     error::{CommandError, to_shell_err},
     globals::{get_pwd, get_vfs, print_to_console, set_pwd},
 };
-use std::sync::Arc;
 use nu_engine::{CallExt, get_eval_block_with_early_return};
 use nu_parser::parse;
 use nu_protocol::{
     Category, PipelineData, ShellError, Signature, SyntaxShape, Type, Value,
     engine::{Command, EngineState, Stack, StateWorkingSet},
 };
+use std::sync::Arc;
 
 #[derive(Clone)]
 pub struct SourceFile;
@@ -60,23 +60,19 @@ impl Command for SourceFile {
 
         let pwd = get_pwd();
         let is_absolute = path_str.starts_with('/');
-        let base_path: Arc<vfs::VfsPath> = if is_absolute {
-            get_vfs()
-        } else {
-            pwd.clone()
-        };
+        let base_path: Arc<vfs::VfsPath> = if is_absolute { get_vfs() } else { pwd.clone() };
 
         // Check if it's a glob pattern (contains *, ?, [, or **)
-        let is_glob = path_str.contains('*') 
-            || path_str.contains('?') 
-            || path_str.contains('[') 
+        let is_glob = path_str.contains('*')
+            || path_str.contains('?')
+            || path_str.contains('[')
             || path_str.contains("**");
 
         let paths_to_source = if is_glob {
             // Expand glob pattern
             let options = crate::cmd::glob::GlobOptions {
                 max_depth: None,
-                no_dirs: true,  // Only source files, not directories
+                no_dirs: true, // Only source files, not directories
                 no_files: false,
             };
             glob_match(&path_str, base_path.clone(), options)?
@@ -88,7 +84,7 @@ impl Command for SourceFile {
         // Source each matching file
         for rel_path in paths_to_source {
             let full_path = base_path.join(&rel_path).map_err(to_shell_err(span))?;
-            
+
             let metadata = full_path.metadata().map_err(to_shell_err(span))?;
             if metadata.file_type != vfs::VfsFileType::File {
                 continue;

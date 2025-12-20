@@ -1,16 +1,16 @@
 use std::io::{Read, Write};
 
 use crate::{
-    cmd::glob::{expand_path, GlobOptions},
+    cmd::glob::{GlobOptions, expand_path},
     error::to_shell_err,
     globals::{get_pwd, get_vfs},
 };
-use std::sync::Arc;
 use nu_engine::CallExt;
 use nu_protocol::{
     Category, PipelineData, ShellError, Signature, SyntaxShape, Type, Value,
     engine::{Command, EngineState, Stack},
 };
+use std::sync::Arc;
 use vfs::{VfsError, VfsFileType};
 
 #[derive(Clone)]
@@ -77,11 +77,7 @@ impl Command for Mv {
 
         // Expand source path (glob or single) into list of paths
         let is_absolute = source_str.starts_with('/');
-        let base_path: Arc<vfs::VfsPath> = if is_absolute {
-            get_vfs()
-        } else {
-            get_pwd()
-        };
+        let base_path: Arc<vfs::VfsPath> = if is_absolute { get_vfs() } else { get_pwd() };
 
         let options = GlobOptions {
             max_depth: None,
@@ -90,7 +86,11 @@ impl Command for Mv {
         };
 
         let matches = expand_path(&source_str, base_path.clone(), options)?;
-        let is_glob = matches.len() > 1 || source_str.contains('*') || source_str.contains('?') || source_str.contains('[') || source_str.contains("**");
+        let is_glob = matches.len() > 1
+            || source_str.contains('*')
+            || source_str.contains('?')
+            || source_str.contains('[')
+            || source_str.contains("**");
 
         // Resolve destination
         let dest = get_pwd()
@@ -99,7 +99,9 @@ impl Command for Mv {
 
         // For glob patterns, destination must be a directory
         if is_glob {
-            let dest_meta = dest.metadata().map_err(to_shell_err(call.arguments_span()))?;
+            let dest_meta = dest
+                .metadata()
+                .map_err(to_shell_err(call.arguments_span()))?;
             if dest_meta.file_type != VfsFileType::Directory {
                 return Err(ShellError::GenericError {
                     error: "destination must be a directory".to_string(),
@@ -113,14 +115,19 @@ impl Command for Mv {
 
         // Move each matching file/directory
         for rel_path in matches {
-            let source = base_path.join(&rel_path).map_err(to_shell_err(call.arguments_span()))?;
-            let source_meta = source.metadata().map_err(to_shell_err(call.arguments_span()))?;
+            let source = base_path
+                .join(&rel_path)
+                .map_err(to_shell_err(call.arguments_span()))?;
+            let source_meta = source
+                .metadata()
+                .map_err(to_shell_err(call.arguments_span()))?;
 
             // Determine destination path
             let dest_entry = if is_glob {
                 // For glob patterns, use filename in destination directory
                 let filename = rel_path.split('/').last().unwrap_or(&rel_path);
-                dest.join(filename).map_err(to_shell_err(call.arguments_span()))?
+                dest.join(filename)
+                    .map_err(to_shell_err(call.arguments_span()))?
             } else {
                 // For single path, use destination as-is
                 dest.clone()
@@ -128,7 +135,9 @@ impl Command for Mv {
 
             match source_meta.file_type {
                 VfsFileType::File => move_file(&source, &dest_entry, call.arguments_span())?,
-                VfsFileType::Directory => move_directory(&source, &dest_entry, call.arguments_span())?,
+                VfsFileType::Directory => {
+                    move_directory(&source, &dest_entry, call.arguments_span())?
+                }
             }
         }
 

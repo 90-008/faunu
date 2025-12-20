@@ -28,8 +28,8 @@ pub mod memory_fs;
 
 use crate::{
     cmd::{
-        Cd, Eval, Fetch, Glob, Job, JobKill, JobList, Ls, Mkdir, Mv, Open, Print, Pwd, Random, Rm, Save,
-        SourceFile, Sys,
+        Cd, Eval, Fetch, Glob, Job, JobKill, JobList, Ls, Mkdir, Mv, Open, Print, Pwd, Random, Rm,
+        Save, SourceFile, Sys,
     },
     default_context::add_shell_command_context,
     globals::{InterruptBool, get_pwd, get_vfs, print_to_console, set_interrupt},

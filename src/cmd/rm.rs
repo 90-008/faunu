@@ -1,14 +1,14 @@
 use crate::{
-    cmd::glob::{expand_path, GlobOptions},
+    cmd::glob::{GlobOptions, expand_path},
     error::to_shell_err,
     globals::{get_pwd, get_vfs},
 };
-use std::sync::Arc;
 use nu_engine::CallExt;
 use nu_protocol::{
     Category, PipelineData, ShellError, Signature, SyntaxShape, Type, Value,
     engine::{Command, EngineState, Stack},
 };
+use std::sync::Arc;
 use vfs::VfsFileType;
 
 #[derive(Clone)]
@@ -75,11 +75,7 @@ impl Command for Rm {
 
         // Expand path (glob or single) into list of paths
         let is_absolute = path_str.starts_with('/');
-        let base_path: Arc<vfs::VfsPath> = if is_absolute {
-            get_vfs()
-        } else {
-            get_pwd()
-        };
+        let base_path: Arc<vfs::VfsPath> = if is_absolute { get_vfs() } else { get_pwd() };
 
         let options = GlobOptions {
             max_depth: None,

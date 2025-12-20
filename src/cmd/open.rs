@@ -1,16 +1,17 @@
 use std::ops::Not;
 
 use crate::{
-    cmd::glob::{expand_path, GlobOptions},
+    cmd::glob::{GlobOptions, expand_path},
     globals::{get_pwd, get_vfs},
 };
-use std::sync::Arc;
 use nu_command::{FromCsv, FromJson, FromOds, FromToml, FromTsv, FromXlsx, FromXml, FromYaml};
 use nu_engine::CallExt;
 use nu_protocol::{
-    ByteStream, Category, ListStream, PipelineData, ShellError, Signature, SyntaxShape, Type, Value,
+    ByteStream, Category, ListStream, PipelineData, ShellError, Signature, SyntaxShape, Type,
+    Value,
     engine::{Command, EngineState, Stack},
 };
+use std::sync::Arc;
 
 #[derive(Clone)]
 pub struct Open;
@@ -65,11 +66,7 @@ impl Command for Open {
 
         // Expand path (glob or single) into list of paths
         let is_absolute = path_str.starts_with('/');
-        let base_path: Arc<vfs::VfsPath> = if is_absolute {
-            get_vfs()
-        } else {
-            get_pwd()
-        };
+        let base_path: Arc<vfs::VfsPath> = if is_absolute { get_vfs() } else { get_pwd() };
 
         let options = GlobOptions {
             max_depth: None,
@@ -127,14 +124,15 @@ impl Command for Open {
                         match cmd.run(engine_state, stack, call, data) {
                             Ok(pipeline_data) => {
                                 // Convert pipeline data to value
-                                pipeline_data.into_value(span).unwrap_or_else(|e| {
-                                    Value::error(e, span)
-                                })
+                                pipeline_data
+                                    .into_value(span)
+                                    .unwrap_or_else(|e| Value::error(e, span))
                             }
                             Err(e) => Value::error(e, span),
                         }
                     } else {
-                        data.into_value(span).unwrap_or_else(|e| Value::error(e, span))
+                        data.into_value(span)
+                            .unwrap_or_else(|e| Value::error(e, span))
                     };
                     results.push(value);
                 }
@@ -154,7 +152,12 @@ impl Command for Open {
         }
 
         // If single file, return the single result directly (for backward compatibility)
-        if results.len() == 1 && !path_str.contains('*') && !path_str.contains('?') && !path_str.contains('[') && !path_str.contains("**") {
+        if results.len() == 1
+            && !path_str.contains('*')
+            && !path_str.contains('?')
+            && !path_str.contains('[')
+            && !path_str.contains("**")
+        {
             match results.into_iter().next().unwrap() {
                 Value::Error { error, .. } => Err(*error),
                 val => Ok(PipelineData::Value(val, None)),
