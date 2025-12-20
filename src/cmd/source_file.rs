@@ -1,11 +1,13 @@
 use crate::{
+    cmd::glob::glob_match,
     error::{CommandError, to_shell_err},
-    globals::{get_pwd, print_to_console, set_pwd},
+    globals::{get_pwd, get_vfs, print_to_console, set_pwd},
 };
+use std::sync::Arc;
 use nu_engine::{CallExt, get_eval_block_with_early_return};
 use nu_parser::parse;
 use nu_protocol::{
-    Category, PipelineData, ShellError, Signature, SyntaxShape, Type,
+    Category, PipelineData, ShellError, Signature, SyntaxShape, Type, Value,
     engine::{Command, EngineState, Stack, StateWorkingSet},
 };
 
@@ -19,7 +21,11 @@ impl Command for SourceFile {
 
     fn signature(&self) -> Signature {
         Signature::build(self.name())
-            .required("path", SyntaxShape::Filepath, "the file to source")
+            .required(
+                "path",
+                SyntaxShape::OneOf(vec![SyntaxShape::Filepath, SyntaxShape::GlobPattern]),
+                "the file to source",
+            )
             .input_output_type(Type::Nothing, Type::Nothing)
             .category(Category::Core)
     }
@@ -36,31 +42,83 @@ impl Command for SourceFile {
         _input: PipelineData,
     ) -> Result<PipelineData, ShellError> {
         let span = call.arguments_span();
-        let path: String = call.req(engine_state, stack, 0)?;
+        let path: Value = call.req(engine_state, stack, 0)?;
 
-        let pwd = get_pwd();
-
-        let path = pwd.join(&path).map_err(to_shell_err(span))?;
-        let contents = path.read_to_string().map_err(to_shell_err(span))?;
-
-        set_pwd(path.parent().into());
-        let res = eval(engine_state, stack, &contents, Some(&path.filename()));
-        set_pwd(pwd);
-
-        match res {
-            Ok(d) => Ok(d),
-            Err(err) => {
-                let msg: String = err.into();
-                print_to_console(&msg, true);
-                Err(ShellError::GenericError {
-                    error: "source error".into(),
-                    msg: "can't source file".into(),
+        // Check if path is a glob pattern
+        let path_str = match &path {
+            Value::String { val, .. } | Value::Glob { val, .. } => val.clone(),
+            _ => {
+                return Err(ShellError::GenericError {
+                    error: "not a path or glob pattern".into(),
+                    msg: String::new(),
                     span: Some(span),
                     help: None,
                     inner: vec![],
-                })
+                });
+            }
+        };
+
+        let pwd = get_pwd();
+        let is_absolute = path_str.starts_with('/');
+        let base_path: Arc<vfs::VfsPath> = if is_absolute {
+            get_vfs()
+        } else {
+            pwd.clone()
+        };
+
+        // Check if it's a glob pattern (contains *, ?, [, or **)
+        let is_glob = path_str.contains('*') 
+            || path_str.contains('?') 
+            || path_str.contains('[') 
+            || path_str.contains("**");
+
+        let paths_to_source = if is_glob {
+            // Expand glob pattern
+            let options = crate::cmd::glob::GlobOptions {
+                max_depth: None,
+                no_dirs: true,  // Only source files, not directories
+                no_files: false,
+            };
+            glob_match(&path_str, base_path.clone(), options)?
+        } else {
+            // Single file path
+            vec![path_str]
+        };
+
+        // Source each matching file
+        for rel_path in paths_to_source {
+            let full_path = base_path.join(&rel_path).map_err(to_shell_err(span))?;
+            
+            let metadata = full_path.metadata().map_err(to_shell_err(span))?;
+            if metadata.file_type != vfs::VfsFileType::File {
+                continue;
+            }
+
+            let contents = full_path.read_to_string().map_err(to_shell_err(span))?;
+
+            set_pwd(full_path.parent().into());
+            let res = eval(engine_state, stack, &contents, Some(&full_path.filename()));
+            set_pwd(pwd.clone());
+
+            match res {
+                Ok(p) => {
+                    print_to_console(&p.collect_string("\n", &engine_state.config)?, true);
+                }
+                Err(err) => {
+                    let msg: String = err.into();
+                    print_to_console(&msg, true);
+                    return Err(ShellError::GenericError {
+                        error: "source error".into(),
+                        msg: format!("can't source file: {}", rel_path),
+                        span: Some(span),
+                        help: None,
+                        inner: vec![],
+                    });
+                }
             }
         }
+
+        Ok(PipelineData::Empty)
     }
 }
 

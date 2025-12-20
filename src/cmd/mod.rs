@@ -1,6 +1,7 @@
 pub mod cd;
 pub mod eval;
 pub mod fetch;
+pub mod glob;
 pub mod job;
 pub mod job_kill;
 pub mod job_list;
@@ -19,6 +20,7 @@ pub mod sys;
 pub use cd::Cd;
 pub use eval::Eval;
 pub use fetch::Fetch;
+pub use glob::Glob;
 pub use job::Job;
 pub use job_kill::JobKill;
 pub use job_list::JobList;
