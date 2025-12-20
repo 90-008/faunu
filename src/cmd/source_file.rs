@@ -1,13 +1,11 @@
-use std::sync::Arc;
-
 use crate::{
     error::{CommandError, to_shell_err},
-    globals::{get_pwd, get_vfs, print_to_console, set_pwd},
+    globals::{get_pwd, print_to_console, set_pwd},
 };
 use nu_engine::{CallExt, get_eval_block_with_early_return};
 use nu_parser::parse;
 use nu_protocol::{
-    Category, PipelineData, ShellError, Signature, Span, SyntaxShape, Type, Value,
+    Category, PipelineData, ShellError, Signature, SyntaxShape, Type,
     engine::{Command, EngineState, Stack, StateWorkingSet},
 };
 
@@ -77,7 +75,6 @@ pub fn eval(
     let start_offset = working_set.next_span_start();
     let _ = working_set.add_file(filename.into(), contents.as_bytes());
 
-    // we dont need the block here just the delta
     let block = parse(&mut working_set, Some(filename), contents.as_bytes(), false);
 
     if let Some(err) = working_set.parse_errors.into_iter().next() {

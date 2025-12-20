@@ -11,13 +11,7 @@ import init, {
 
 // Initialize WASM
 await init();
-try {
-  await init_engine();
-} catch (error) {
-  console.error(error);
-}
 
-// Setup Callbacks to proxy messages back to Main Thread
 register_console_callback((msg: string, isCmd: boolean) => {
   self.postMessage({ type: "console", payload: { msg, isCmd } });
 });
@@ -26,7 +20,12 @@ register_task_count_callback((count: number) => {
   self.postMessage({ type: "task_count", payload: count });
 });
 
-// Handle messages from Main Thread
+try {
+  await init_engine();
+} catch (error) {
+  console.error(error);
+}
+
 self.onmessage = async (e) => {
   const { id, type, payload } = e.data;
 
@@ -51,7 +50,7 @@ self.onmessage = async (e) => {
         result = get_pwd_string();
         break;
       default:
-        throw new Error(`Unknown message type: ${type}`);
+        throw new Error(`unknown message type: ${type}`);
     }
     self.postMessage({ id, type: `${type}_result`, payload: result });
   } catch (err) {
