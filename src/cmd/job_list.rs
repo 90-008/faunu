@@ -14,7 +14,7 @@ impl Command for JobList {
 
     fn signature(&self) -> Signature {
         Signature::build("job list")
-            .input_output_type(Type::Nothing, Type::record())
+            .input_output_type(Type::Nothing, Type::table())
             .category(Category::System)
     }
 

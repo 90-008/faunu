@@ -39,7 +39,7 @@ impl Command for Ls {
                 Some('l'),
             )
             .switch("full-paths", "display paths as absolute paths", Some('f'))
-            .input_output_type(Type::Nothing, Type::record())
+            .input_output_type(Type::Nothing, Type::table())
             .category(Category::FileSystem)
     }
 
