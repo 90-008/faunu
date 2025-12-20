@@ -256,22 +256,29 @@ pub fn generate_command_argument_suggestions(
                                 "[completion] Flag {flag_name:?} accepts argument of type {:?}",
                                 flag_arg_shape
                             );
+                            let mut add_file_suggestions = || {
+                                let file_suggestions = generate_file_suggestions(
+                                    &prefix,
+                                    span,
+                                    root,
+                                    Some(flag.desc.clone()),
+                                    input,
+                                );
+                                let file_count = file_suggestions.len();
+                                suggestions.extend(file_suggestions);
+                                console_log!(
+                                    "[completion] Found {file_count} file suggestions for flag argument"
+                                );
+                            };
                             match flag_arg_shape {
                                 nu_protocol::SyntaxShape::Filepath
                                 | nu_protocol::SyntaxShape::Any => {
-                                    // File/directory completion for flag argument
-                                    let file_suggestions = generate_file_suggestions(
-                                        &prefix,
-                                        span,
-                                        root,
-                                        Some(flag.desc.clone()),
-                                        input,
-                                    );
-                                    let file_count = file_suggestions.len();
-                                    suggestions.extend(file_suggestions);
-                                    console_log!(
-                                        "[completion] Found {file_count} file suggestions for flag argument"
-                                    );
+                                    add_file_suggestions();
+                                }
+                                nu_protocol::SyntaxShape::OneOf(l)
+                                    if l.contains(&nu_protocol::SyntaxShape::Filepath) =>
+                                {
+                                    add_file_suggestions();
                                 }
                                 _ => {
                                     // Flag argument is not a filepath type
@@ -308,23 +315,24 @@ pub fn generate_command_argument_suggestions(
         };
 
         if let Some(arg) = arg {
-            // Check the SyntaxShape to determine completion type
-            // Only suggest files/dirs for Filepath type
+            let mut add_file_suggestions = || {
+                let file_suggestions =
+                    generate_file_suggestions(&prefix, span, root, Some(arg.desc.clone()), input);
+                let file_count = file_suggestions.len();
+                suggestions.extend(file_suggestions);
+                console_log!(
+                    "[completion] Found {file_count} file suggestions for argument {arg_index}"
+                );
+            };
+
             match &arg.shape {
                 nu_protocol::SyntaxShape::Filepath | nu_protocol::SyntaxShape::Any => {
-                    // File/directory completion
-                    let file_suggestions = generate_file_suggestions(
-                        &prefix,
-                        span,
-                        root,
-                        Some(arg.desc.clone()),
-                        input,
-                    );
-                    let file_count = file_suggestions.len();
-                    suggestions.extend(file_suggestions);
-                    console_log!(
-                        "[completion] Found {file_count} file suggestions for argument {arg_index}"
-                    );
+                    add_file_suggestions();
+                }
+                nu_protocol::SyntaxShape::OneOf(l)
+                    if l.contains(&nu_protocol::SyntaxShape::Filepath) =>
+                {
+                    add_file_suggestions();
                 }
                 _ => {
                     // For other types, don't suggest files
