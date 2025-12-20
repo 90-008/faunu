@@ -160,11 +160,18 @@ pub fn glob_match(
 
                 // Recursively walk into subdirectories
                 if metadata.file_type == VfsFileType::Directory {
-                    // Continue if: recursive pattern, or we haven't reached max depth, or pattern has more components
+                    // Only recurse if:
+                    // 1. Pattern contains ** (recursive wildcard), OR
+                    // 2. Pattern has path separators and we haven't matched all components yet
+                    let has_path_separator = normalized_pattern.contains('/');
+                    let pattern_component_count = if has_path_separator {
+                        normalized_pattern.split('/').count()
+                    } else {
+                        1
+                    };
+                    
                     let should_recurse = is_recursive
-                        || current_depth < max_depth
-                        || (normalized_pattern.contains('/')
-                            && current_depth < normalized_pattern.split('/').count());
+                        || (has_path_separator && current_depth + 1 < pattern_component_count);
 
                     if should_recurse {
                         walk_directory(
