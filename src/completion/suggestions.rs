@@ -1,10 +1,11 @@
 use crate::completion::context::get_command_signature;
 use crate::completion::helpers::to_char_span;
-use crate::completion::types::{CompletionContext, Suggestion};
+use crate::completion::types::{CompletionContext, CompletionKind, Suggestion};
 use crate::completion::variables::*;
 use crate::console_log;
 use nu_protocol::Span;
 use nu_protocol::engine::{EngineState, Stack, StateWorkingSet};
+use std::collections::HashSet;
 
 pub fn generate_command_suggestions(
     input: &str,
@@ -205,7 +206,7 @@ pub fn generate_command_argument_suggestions(
     );
 
     let mut suggestions = Vec::new();
-    
+
     // If we're at argument index 0, check if the command has subcommands and add them
     if arg_index == 0 {
         let parent_prefix = format!("{} ", command_name);
@@ -214,10 +215,10 @@ pub fn generate_command_argument_suggestions(
         } else {
             format!("{}{}", parent_prefix, prefix)
         };
-        
+
         let subcommands = working_set
             .find_commands_by_predicate(|value| value.starts_with(search_prefix.as_bytes()), true);
-        
+
         if !subcommands.is_empty() {
             // Command has subcommands - add them to suggestions
             console_log!(
@@ -229,7 +230,8 @@ pub fn generate_command_argument_suggestions(
                 if let Some(subcommand_name) = name_str.strip_prefix(&parent_prefix) {
                     suggestions.push(Suggestion {
                         rendered: {
-                            let name_colored = ansi_term::Color::Green.bold().paint(subcommand_name);
+                            let name_colored =
+                                ansi_term::Color::Green.bold().paint(subcommand_name);
                             let desc_str = desc.as_deref().unwrap_or("<no description>");
                             format!("{name_colored} {desc_str}")
                         },
@@ -242,7 +244,7 @@ pub fn generate_command_argument_suggestions(
             }
         }
     }
-    
+
     if let Some(signature) = get_command_signature(engine_guard, &command_name) {
         // First, check if we're completing an argument for a flag
         // Look backwards from the current position to find the previous flag
@@ -558,7 +560,7 @@ pub fn generate_file_suggestions(
 
 pub fn generate_suggestions(
     input: &str,
-    contexts: Vec<CompletionContext>,
+    contexts: HashSet<CompletionContext>,
     working_set: &StateWorkingSet,
     engine_guard: &EngineState,
     stack_guard: &Stack,
@@ -567,43 +569,57 @@ pub fn generate_suggestions(
 ) -> Vec<Suggestion> {
     console_log!("contexts: {contexts:?}");
 
+    let mut context_vec: Vec<_> = contexts.into_iter().collect();
+    context_vec.sort_by_key(|ctx| match &ctx.kind {
+        CompletionKind::Command { .. } => 0,
+        CompletionKind::Flag { .. } => 1,
+        CompletionKind::Variable => 2,
+        CompletionKind::CellPath { .. } => 3,
+        CompletionKind::CommandArgument { .. } => 4,
+        CompletionKind::Argument => 5,
+    });
+
     let mut suggestions = Vec::new();
-    for context in contexts {
-        let mut sug = match context {
-            CompletionContext::Command {
-                prefix,
-                span,
-                parent_command,
-            } => generate_command_suggestions(input, working_set, prefix, span, parent_command),
-            CompletionContext::Argument { prefix, span } => {
-                generate_argument_suggestions(input, prefix, span, root)
+    for context in context_vec.iter() {
+        let mut sug = match &context.kind {
+            CompletionKind::Command { parent_command } => generate_command_suggestions(
+                input,
+                working_set,
+                context.prefix.clone(),
+                context.span,
+                parent_command.clone(),
+            ),
+            CompletionKind::Argument => {
+                generate_argument_suggestions(input, context.prefix.clone(), context.span, root)
             }
-            CompletionContext::Flag {
-                prefix,
-                span,
-                command_name,
-            } => generate_flag_suggestions(input, engine_guard, prefix, span, command_name),
-            CompletionContext::CommandArgument {
-                prefix,
-                span,
+            CompletionKind::Flag { command_name } => generate_flag_suggestions(
+                input,
+                engine_guard,
+                context.prefix.clone(),
+                context.span,
+                command_name.clone(),
+            ),
+            CompletionKind::CommandArgument {
                 command_name,
                 arg_index,
             } => generate_command_argument_suggestions(
                 input,
                 engine_guard,
                 working_set,
-                prefix,
-                span,
-                command_name,
-                arg_index,
+                context.prefix.clone(),
+                context.span,
+                command_name.clone(),
+                *arg_index,
                 root,
             ),
-            CompletionContext::Variable { prefix, span } => {
-                generate_variable_suggestions(input, working_set, prefix, span, byte_pos)
-            }
-            CompletionContext::CellPath {
-                prefix,
-                span,
+            CompletionKind::Variable => generate_variable_suggestions(
+                input,
+                working_set,
+                context.prefix.clone(),
+                context.span,
+                byte_pos,
+            ),
+            CompletionKind::CellPath {
                 var_id,
                 path_so_far,
             } => generate_cell_path_suggestions(
@@ -611,10 +627,10 @@ pub fn generate_suggestions(
                 working_set,
                 engine_guard,
                 stack_guard,
-                prefix,
-                span,
-                var_id,
-                path_so_far,
+                context.prefix.clone(),
+                context.span,
+                *var_id,
+                path_so_far.clone(),
             ),
         };
         suggestions.append(&mut sug);

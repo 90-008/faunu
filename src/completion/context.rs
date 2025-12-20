@@ -1,5 +1,5 @@
 use crate::completion::helpers::*;
-use crate::completion::types::CompletionContext;
+use crate::completion::types::{CompletionContext, CompletionKind};
 use crate::console_log;
 use nu_parser::FlatShape;
 use nu_protocol::engine::{EngineState, StateWorkingSet};
@@ -122,13 +122,16 @@ pub fn determine_flag_or_argument_context(
         if let Some((cmd_name, _)) =
             find_command_and_arg_index(input, shapes, idx, local_span, global_offset)
         {
-            CompletionContext::Flag {
+            CompletionContext {
+                kind: CompletionKind::Flag {
+                    command_name: cmd_name,
+                },
                 prefix: trimmed_prefix.to_string(),
                 span,
-                command_name: cmd_name,
             }
         } else {
-            CompletionContext::Argument {
+            CompletionContext {
+                kind: CompletionKind::Argument,
                 prefix: prefix.to_string(),
                 span,
             }
@@ -138,14 +141,17 @@ pub fn determine_flag_or_argument_context(
         if let Some((cmd_name, arg_index)) =
             find_command_and_arg_index(input, shapes, idx, local_span, global_offset)
         {
-            CompletionContext::CommandArgument {
+            CompletionContext {
+                kind: CompletionKind::CommandArgument {
+                    command_name: cmd_name,
+                    arg_index,
+                },
                 prefix: trimmed_prefix.to_string(),
                 span,
-                command_name: cmd_name,
-                arg_index,
             }
         } else {
-            CompletionContext::Argument {
+            CompletionContext {
+                kind: CompletionKind::Argument,
                 prefix: prefix.to_string(),
                 span,
             }
@@ -227,18 +233,22 @@ pub fn handle_block_or_closure(
                 console_log!(
                     "[completion] {shape_name} is empty, showing subcommands of {cmd_name:?}"
                 );
-                Some(CompletionContext::Command {
+                Some(CompletionContext {
+                    kind: CompletionKind::Command {
+                        parent_command: Some(cmd_name),
+                    },
                     prefix: String::new(),
                     span: adjusted_span,
-                    parent_command: Some(cmd_name),
                 })
             } else {
                 // Truly empty - show all commands
                 console_log!("[completion] {shape_name} is empty, setting Command context");
-                Some(CompletionContext::Command {
+                Some(CompletionContext {
+                    kind: CompletionKind::Command {
+                        parent_command: None,
+                    },
                     prefix: String::new(),
                     span: adjusted_span,
-                    parent_command: None,
                 })
             }
         } else if let Some(last_sep_pos) = last_sep_pos_in_prefix {
@@ -247,10 +257,12 @@ pub fn handle_block_or_closure(
             console_log!(
                 "[completion] {shape_name} has separator at {last_sep_pos}, after_sep={after_sep:?}, setting Command context"
             );
-            Some(CompletionContext::Command {
+            Some(CompletionContext {
+                kind: CompletionKind::Command {
+                    parent_command: None,
+                },
                 prefix: after_sep.to_string(),
                 span: Span::new(span.start + last_sep_pos, span.end),
-                parent_command: None,
             })
         } else {
             console_log!(
@@ -270,11 +282,13 @@ pub fn handle_block_or_closure(
                         console_log!(
                             "[completion] {shape_name}: Setting CellPath context with var {var_name:?}, prefix {cell_prefix:?}"
                         );
-                        Some(CompletionContext::CellPath {
+                        Some(CompletionContext {
+                            kind: CompletionKind::CellPath {
+                                var_id,
+                                path_so_far: path_so_far.iter().map(|s| s.to_string()).collect(),
+                            },
                             prefix: cell_prefix.to_string(),
                             span: Span::new(cell_span_start, adjusted_span.end),
-                            var_id,
-                            path_so_far: path_so_far.iter().map(|s| s.to_string()).collect(),
                         })
                     } else {
                         // Unknown variable, fall back to variable completion
@@ -282,7 +296,8 @@ pub fn handle_block_or_closure(
                         console_log!(
                             "[completion] {shape_name}: Unknown var, setting Variable context with prefix {var_prefix:?}"
                         );
-                        Some(CompletionContext::Variable {
+                        Some(CompletionContext {
+                            kind: CompletionKind::Variable,
                             prefix: var_prefix,
                             span: adjusted_span,
                         })
@@ -297,7 +312,8 @@ pub fn handle_block_or_closure(
                     console_log!(
                         "[completion] {shape_name}: Setting Variable context with prefix {var_prefix:?}"
                     );
-                    Some(CompletionContext::Variable {
+                    Some(CompletionContext {
+                        kind: CompletionKind::Variable,
                         prefix: var_prefix,
                         span: adjusted_span,
                     })
@@ -314,13 +330,16 @@ pub fn handle_block_or_closure(
                     console_log!(
                         "[completion] {shape_name}: Found command {cmd_name:?} for flag completion"
                     );
-                    Some(CompletionContext::Flag {
+                    Some(CompletionContext {
+                        kind: CompletionKind::Flag {
+                            command_name: cmd_name,
+                        },
                         prefix: trimmed.to_string(),
                         span: adjusted_span,
-                        command_name: cmd_name,
                     })
                 } else {
-                    Some(CompletionContext::Argument {
+                    Some(CompletionContext {
+                        kind: CompletionKind::Argument,
                         prefix: trimmed_prefix.to_string(),
                         span: adjusted_span,
                     })
@@ -337,18 +356,21 @@ pub fn handle_block_or_closure(
                     console_log!(
                         "[completion] {shape_name}: Found command {cmd_name:?} with arg_index {arg_index} for argument completion"
                     );
-                    Some(CompletionContext::CommandArgument {
+                    Some(CompletionContext {
+                        kind: CompletionKind::CommandArgument {
+                            command_name: cmd_name,
+                            arg_index,
+                        },
                         prefix: trimmed.to_string(),
                         span: adjusted_span,
-                        command_name: cmd_name,
-                        arg_index,
                     })
                 } else {
                     // No command found, treat as regular argument
                     console_log!(
                         "[completion] {shape_name}: No command found, using Argument context"
                     );
-                    Some(CompletionContext::Argument {
+                    Some(CompletionContext {
+                        kind: CompletionKind::Argument,
                         prefix: trimmed_prefix.to_string(),
                         span: adjusted_span,
                     })
@@ -392,11 +414,13 @@ pub fn handle_variable_string_shape(
             console_log!(
                 "[completion] Detected cell path from Variable+String shapes, var_id={var_id:?}, prefix={cell_prefix:?}, path={path_so_far:?}"
             );
-            Some(CompletionContext::CellPath {
+            Some(CompletionContext {
+                kind: CompletionKind::CellPath {
+                    var_id,
+                    path_so_far: path_so_far.iter().map(|s| s.to_string()).collect(),
+                },
                 prefix: cell_prefix.to_string(),
                 span: Span::new(cell_span_start, span.end),
-                var_id,
-                path_so_far: path_so_far.iter().map(|s| s.to_string()).collect(),
             })
         } else {
             // Gap between shapes, use helper to determine context
@@ -434,7 +458,8 @@ pub fn handle_dot_shape(
     global_offset: usize,
 ) -> Option<CompletionContext> {
     if idx == 0 {
-        return Some(CompletionContext::Argument {
+        return Some(CompletionContext {
+            kind: CompletionKind::Argument,
             prefix: prefix.to_string(),
             span,
         });
@@ -460,22 +485,26 @@ pub fn handle_dot_shape(
             console_log!(
                 "[completion] Detected cell path from adjacent Variable shape, var_id={var_id:?}, prefix={cell_prefix:?}"
             );
-            Some(CompletionContext::CellPath {
+            Some(CompletionContext {
+                kind: CompletionKind::CellPath {
+                    var_id,
+                    path_so_far: path_so_far.iter().map(|s| s.to_string()).collect(),
+                },
                 prefix: cell_prefix.to_string(),
                 span: Span::new(cell_span_start, span.end),
-                var_id,
-                path_so_far: path_so_far.iter().map(|s| s.to_string()).collect(),
             })
         } else {
             // Gap between shapes, fall through to default handling
-            Some(CompletionContext::Argument {
+            Some(CompletionContext {
+                kind: CompletionKind::Argument,
                 prefix: prefix.to_string(),
                 span,
             })
         }
     } else {
         // Previous shape is not a Variable, this is likely a file path starting with .
-        Some(CompletionContext::Argument {
+        Some(CompletionContext {
+            kind: CompletionKind::Argument,
             prefix: prefix.to_string(),
             span,
         })
@@ -518,10 +547,12 @@ pub fn determine_context_from_shape(
             if trimmed_prefix == "{" {
                 // We're right after '{' - command context
                 if let Some((_, adjusted_span, _)) = handle_block_prefix(&prefix, span) {
-                    return Some(CompletionContext::Command {
+                    return Some(CompletionContext {
+                        kind: CompletionKind::Command {
+                            parent_command: None,
+                        },
                         prefix: String::new(),
                         span: adjusted_span,
-                        parent_command: None,
                     });
                 }
             } else {
@@ -577,19 +608,22 @@ pub fn determine_context_from_shape(
                                 // Calculate span for the cell path member being completed
                                 let prefix_byte_len = cell_prefix.len();
                                 let cell_span_start = span.end.saturating_sub(prefix_byte_len);
-                                return Some(CompletionContext::CellPath {
+                                return Some(CompletionContext {
+                                    kind: CompletionKind::CellPath {
+                                        var_id,
+                                        path_so_far: path_so_far
+                                            .iter()
+                                            .map(|s| s.to_string())
+                                            .collect(),
+                                    },
                                     prefix: cell_prefix.to_string(),
                                     span: Span::new(cell_span_start, span.end),
-                                    var_id,
-                                    path_so_far: path_so_far
-                                        .iter()
-                                        .map(|s| s.to_string())
-                                        .collect(),
                                 });
                             } else {
                                 // Unknown variable, fall back to variable completion
                                 let var_prefix = trimmed_prefix[1..].to_string();
-                                return Some(CompletionContext::Variable {
+                                return Some(CompletionContext {
+                                    kind: CompletionKind::Variable,
                                     prefix: var_prefix,
                                     span,
                                 });
@@ -601,7 +635,8 @@ pub fn determine_context_from_shape(
                             } else {
                                 String::new()
                             };
-                            return Some(CompletionContext::Variable {
+                            return Some(CompletionContext {
+                                kind: CompletionKind::Variable,
                                 prefix: var_prefix,
                                 span,
                             });
@@ -610,10 +645,12 @@ pub fn determine_context_from_shape(
                     _ if is_command_shape(input, shape, local_span) => {
                         let (full_prefix, full_span) =
                             build_command_prefix(input, shapes, idx, span, &prefix, global_offset);
-                        return Some(CompletionContext::Command {
+                        return Some(CompletionContext {
+                            kind: CompletionKind::Command {
+                                parent_command: None,
+                            },
                             prefix: full_prefix,
                             span: full_span,
-                            parent_command: None,
                         });
                     }
                     FlatShape::Block | FlatShape::Closure => {
@@ -641,26 +678,30 @@ pub fn determine_context_from_shape(
                             {
                                 let prefix_byte_len = cell_prefix.len();
                                 let cell_span_start = span.end.saturating_sub(prefix_byte_len);
-                                return Some(CompletionContext::CellPath {
+                                return Some(CompletionContext {
+                                    kind: CompletionKind::CellPath {
+                                        var_id: *var_id,
+                                        path_so_far: path_so_far
+                                            .iter()
+                                            .map(|s| s.to_string())
+                                            .collect(),
+                                    },
                                     prefix: cell_prefix.to_string(),
                                     span: Span::new(cell_span_start, span.end),
-                                    var_id: *var_id,
-                                    path_so_far: path_so_far
-                                        .iter()
-                                        .map(|s| s.to_string())
-                                        .collect(),
                                 });
                             } else {
                                 // Simple variable completion
                                 let var_prefix = trimmed_prefix[1..].to_string();
-                                return Some(CompletionContext::Variable {
+                                return Some(CompletionContext {
+                                    kind: CompletionKind::Variable,
                                     prefix: var_prefix,
                                     span,
                                 });
                             }
                         } else {
                             // Fallback to argument context if no $ found
-                            return Some(CompletionContext::Argument {
+                            return Some(CompletionContext {
+                                kind: CompletionKind::Argument,
                                 prefix: prefix.to_string(),
                                 span,
                             });
@@ -678,18 +719,21 @@ pub fn determine_context_from_shape(
                                 if let Some(var_id) = var_id {
                                     let prefix_byte_len = cell_prefix.len();
                                     let cell_span_start = span.end.saturating_sub(prefix_byte_len);
-                                    return Some(CompletionContext::CellPath {
+                                    return Some(CompletionContext {
+                                        kind: CompletionKind::CellPath {
+                                            var_id,
+                                            path_so_far: path_so_far
+                                                .iter()
+                                                .map(|s| s.to_string())
+                                                .collect(),
+                                        },
                                         prefix: cell_prefix.to_string(),
                                         span: Span::new(cell_span_start, span.end),
-                                        var_id,
-                                        path_so_far: path_so_far
-                                            .iter()
-                                            .map(|s| s.to_string())
-                                            .collect(),
                                     });
                                 } else {
                                     let var_prefix = trimmed_prefix[1..].to_string();
-                                    return Some(CompletionContext::Variable {
+                                    return Some(CompletionContext {
+                                        kind: CompletionKind::Variable,
                                         prefix: var_prefix,
                                         span,
                                     });
@@ -701,7 +745,8 @@ pub fn determine_context_from_shape(
                                 } else {
                                     String::new()
                                 };
-                                return Some(CompletionContext::Variable {
+                                return Some(CompletionContext {
+                                    kind: CompletionKind::Variable,
                                     prefix: var_prefix,
                                     span,
                                 });
@@ -810,11 +855,13 @@ pub fn determine_context_fallback(
                                     "[completion] Right after command {cmd_name:?}, setting CommandArgument context with arg_index: {arg_count}"
                                 );
 
-                                context.push(CompletionContext::CommandArgument {
+                                context.push(CompletionContext {
+                                    kind: CompletionKind::CommandArgument {
+                                        command_name: cmd_name.clone(),
+                                        arg_index: arg_count,
+                                    },
                                     prefix: String::new(),
                                     span: Span::new(byte_pos, byte_pos),
-                                    command_name: cmd_name.clone(),
-                                    arg_index: arg_count,
                                 });
                             }
                         }
@@ -830,10 +877,12 @@ pub fn determine_context_fallback(
                             console_log!(
                                 "[completion] Command {cmd_name:?} has no positional args, showing subcommands"
                             );
-                            context.push(CompletionContext::Command {
+                            context.push(CompletionContext {
+                                kind: CompletionKind::Command {
+                                    parent_command: Some(cmd_first_word),
+                                },
                                 prefix: String::new(),
                                 span: Span::new(byte_pos, byte_pos),
-                                parent_command: Some(cmd_first_word),
                             });
                         }
                         // reverse to put subcommands in the beginning
@@ -842,10 +891,12 @@ pub fn determine_context_fallback(
                     } else {
                         // Not right after command, complete the command itself
                         console_log!("[completion] Set Command context with prefix: {cmd:?}");
-                        return vec![CompletionContext::Command {
+                        return vec![CompletionContext {
+                            kind: CompletionKind::Command {
+                                parent_command: None,
+                            },
                             prefix: cmd.to_string(),
                             span: local_span,
-                            parent_command: None,
                         }];
                     }
                 }
@@ -902,10 +953,12 @@ pub fn determine_context_fallback(
     console_log!("[completion] last_word_start={last_word_start}, last_word={last_word:?}");
 
     if is_cmd_context {
-        vec![CompletionContext::Command {
+        vec![CompletionContext {
+            kind: CompletionKind::Command {
+                parent_command: None,
+            },
             prefix: last_word.to_string(),
             span: Span::new(last_word_start, byte_pos),
-            parent_command: None,
         }]
     } else {
         // Check if this is a variable or cell path (starts with $)
@@ -918,15 +971,18 @@ pub fn determine_context_fallback(
                 if let Some(var_id) = var_id {
                     let prefix_byte_len = cell_prefix.len();
                     let cell_span_start = byte_pos.saturating_sub(prefix_byte_len);
-                    vec![CompletionContext::CellPath {
+                    vec![CompletionContext {
+                        kind: CompletionKind::CellPath {
+                            var_id,
+                            path_so_far: path_so_far.iter().map(|s| s.to_string()).collect(),
+                        },
                         prefix: cell_prefix.to_string(),
                         span: Span::new(cell_span_start, byte_pos),
-                        var_id,
-                        path_so_far: path_so_far.iter().map(|s| s.to_string()).collect(),
                     }]
                 } else {
                     let var_prefix = trimmed_word[1..].to_string();
-                    vec![CompletionContext::Variable {
+                    vec![CompletionContext {
+                        kind: CompletionKind::Variable,
                         prefix: var_prefix,
                         span: Span::new(last_word_start, byte_pos),
                     }]
@@ -934,7 +990,8 @@ pub fn determine_context_fallback(
             } else {
                 // Simple variable completion
                 let var_prefix = trimmed_word[1..].to_string();
-                vec![CompletionContext::Variable {
+                vec![CompletionContext {
+                    kind: CompletionKind::Variable,
                     prefix: var_prefix,
                     span: Span::new(last_word_start, byte_pos),
                 }]
@@ -952,13 +1009,16 @@ pub fn determine_context_fallback(
                 }
             }
             if let Some(cmd_name) = found_cmd {
-                vec![CompletionContext::Flag {
+                vec![CompletionContext {
+                    kind: CompletionKind::Flag {
+                        command_name: cmd_name,
+                    },
                     prefix: trimmed_word.to_string(),
                     span: Span::new(last_word_start, byte_pos),
-                    command_name: cmd_name,
                 }]
             } else {
-                vec![CompletionContext::Argument {
+                vec![CompletionContext {
+                    kind: CompletionKind::Argument,
                     prefix: last_word.to_string(),
                     span: Span::new(last_word_start, byte_pos),
                 }]
@@ -985,14 +1045,17 @@ pub fn determine_context_fallback(
                 }
             }
             if let Some(cmd_name) = found_cmd {
-                vec![CompletionContext::CommandArgument {
+                vec![CompletionContext {
+                    kind: CompletionKind::CommandArgument {
+                        command_name: cmd_name,
+                        arg_index: arg_count,
+                    },
                     prefix: trimmed_word.to_string(),
                     span: Span::new(last_word_start, byte_pos),
-                    command_name: cmd_name,
-                    arg_index: arg_count,
                 }]
             } else {
-                vec![CompletionContext::Argument {
+                vec![CompletionContext {
+                    kind: CompletionKind::Argument,
                     prefix: last_word.to_string(),
                     span: Span::new(last_word_start, byte_pos),
                 }]

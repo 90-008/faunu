@@ -98,9 +98,10 @@ impl Command for Ls {
             } else {
                 // Non-glob path: check if it's a directory and list its contents
                 let normalized_path = path_str.trim_start_matches('/').trim_end_matches('/');
-                let target_path = base_path.join(normalized_path)
+                let target_path = base_path
+                    .join(normalized_path)
                     .map_err(to_shell_err(call.arguments_span()))?;
-                
+
                 let metadata = target_path.metadata().map_err(to_shell_err(span))?;
                 match metadata.file_type {
                     vfs::VfsFileType::Directory => {

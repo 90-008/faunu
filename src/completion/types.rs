@@ -27,36 +27,62 @@ impl Ord for Suggestion {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub enum CompletionContext {
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum CompletionKind {
     Command {
-        prefix: String,
-        span: Span,
         parent_command: Option<String>, // If Some, only show subcommands of this command
     },
-    Argument {
-        prefix: String,
-        span: Span,
-    },
+    Argument,
     Flag {
-        prefix: String,
-        span: Span,
         command_name: String,
     },
     CommandArgument {
-        prefix: String,
-        span: Span,
         command_name: String,
         arg_index: usize,
     },
-    Variable {
-        prefix: String, // without the $ prefix
-        span: Span,
-    },
+    Variable, // prefix is without the $ prefix
     CellPath {
-        prefix: String,             // the partial field name being typed (after the last dot)
-        span: Span,                 // replacement span
         var_id: nu_protocol::VarId, // variable ID for evaluation
         path_so_far: Vec<String>,   // path members accessed before current one
     },
+}
+
+#[derive(Debug)]
+pub struct CompletionContext {
+    pub kind: CompletionKind,
+    pub prefix: String, // the partial text being completed
+    pub span: Span,
+}
+
+impl PartialEq for CompletionContext {
+    fn eq(&self, other: &Self) -> bool {
+        self.kind == other.kind && self.prefix == other.prefix
+    }
+}
+
+impl Eq for CompletionContext {}
+
+impl PartialOrd for CompletionContext {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        match self.kind.partial_cmp(&other.kind) {
+            Some(std::cmp::Ordering::Equal) => self.prefix.partial_cmp(&other.prefix),
+            other => other,
+        }
+    }
+}
+
+impl Ord for CompletionContext {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        match self.kind.cmp(&other.kind) {
+            std::cmp::Ordering::Equal => self.prefix.cmp(&other.prefix),
+            other => other,
+        }
+    }
+}
+
+impl std::hash::Hash for CompletionContext {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.kind.hash(state);
+        self.prefix.hash(state);
+    }
 }

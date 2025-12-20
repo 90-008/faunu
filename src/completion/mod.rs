@@ -73,10 +73,14 @@ pub async fn completion_impl(input: String, js_cursor_pos: usize) -> String {
         global_offset,
     );
 
+    // Convert Vec to HashSet
+    use std::collections::HashSet;
+    let context_set: HashSet<CompletionContext> = context.into_iter().collect();
+
     // Generate suggestions based on context
     let suggestions = generate_suggestions(
         &input,
-        context,
+        context_set,
         &working_set,
         &engine_guard,
         &stack_guard,
