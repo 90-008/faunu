@@ -80,14 +80,51 @@ impl Command for Ls {
             let is_absolute = path_str.starts_with('/');
             let base_path: Arc<vfs::VfsPath> = if is_absolute { get_vfs() } else { pwd.clone() };
 
-            let options = GlobOptions {
-                max_depth: None,
-                no_dirs: false,
-                no_files: false,
-            };
+            // Check if it's a glob pattern
+            let is_glob = path_str.contains('*')
+                || path_str.contains('?')
+                || path_str.contains('[')
+                || path_str.contains("**");
 
-            let matches = expand_path(path_str, base_path.clone(), options)?;
-            (matches, base_path)
+            if is_glob {
+                // Glob pattern: expand and list matching paths
+                let options = GlobOptions {
+                    max_depth: None,
+                    no_dirs: false,
+                    no_files: false,
+                };
+                let matches = expand_path(path_str, base_path.clone(), options)?;
+                (matches, base_path)
+            } else {
+                // Non-glob path: check if it's a directory and list its contents
+                let normalized_path = path_str.trim_start_matches('/').trim_end_matches('/');
+                let target_path = base_path.join(normalized_path)
+                    .map_err(to_shell_err(call.arguments_span()))?;
+                
+                let metadata = target_path.metadata().map_err(to_shell_err(span))?;
+                match metadata.file_type {
+                    vfs::VfsFileType::Directory => {
+                        // List directory contents
+                        let entries = target_path.read_dir().map_err(to_shell_err(span))?;
+                        let matches: Vec<String> = entries
+                            .map(|e| {
+                                // Build relative path from base_path
+                                let entry_name = e.filename();
+                                if normalized_path.is_empty() || normalized_path == "." {
+                                    entry_name
+                                } else {
+                                    format!("{}/{}", normalized_path, entry_name)
+                                }
+                            })
+                            .collect();
+                        (matches, base_path)
+                    }
+                    vfs::VfsFileType::File => {
+                        // Single file: return just this file (normalized, relative to base_path)
+                        (vec![normalized_path.to_string()], base_path)
+                    }
+                }
+            }
         } else {
             // No path: list current directory entries
             let entries = pwd.read_dir().map_err(to_shell_err(span))?;
