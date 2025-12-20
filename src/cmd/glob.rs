@@ -169,7 +169,7 @@ pub fn glob_match(
                     } else {
                         1
                     };
-                    
+
                     let should_recurse = is_recursive
                         || (has_path_separator && current_depth + 1 < pattern_component_count);
 
@@ -224,7 +224,7 @@ impl Command for Glob {
             .required(
                 "pattern",
                 SyntaxShape::OneOf(vec![SyntaxShape::String, SyntaxShape::GlobPattern]),
-                "The glob expression.",
+                "the glob expression.",
             )
             .named(
                 "depth",
@@ -234,12 +234,12 @@ impl Command for Glob {
             )
             .switch(
                 "no-dir",
-                "Whether to filter out directories from the returned paths",
+                "whether to filter out directories from the returned paths",
                 Some('D'),
             )
             .switch(
                 "no-file",
-                "Whether to filter out files from the returned paths",
+                "whether to filter out files from the returned paths",
                 Some('F'),
             )
             .input_output_type(Type::Nothing, Type::List(Box::new(Type::String)))
@@ -247,7 +247,7 @@ impl Command for Glob {
     }
 
     fn description(&self) -> &str {
-        "Creates a list of files and/or folders based on the glob pattern provided."
+        "creates a list of paths based on the glob pattern provided."
     }
 
     fn run(
@@ -268,9 +268,9 @@ impl Command for Glob {
             Value::String { val, .. } | Value::Glob { val, .. } => val,
             _ => {
                 return Err(ShellError::IncorrectValue {
-                    msg: "Incorrect glob pattern supplied to glob. Please use string or glob only."
+                    msg: "incorrect glob pattern supplied to glob. use string or glob only."
                         .to_string(),
-                    val_span: call.head,
+                    val_span: pattern_span,
                     call_span: pattern_span,
                 });
             }

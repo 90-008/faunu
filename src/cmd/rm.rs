@@ -23,7 +23,7 @@ impl Command for Rm {
         Signature::build("rm")
             .required(
                 "path",
-                SyntaxShape::OneOf(vec![SyntaxShape::String, SyntaxShape::GlobPattern]),
+                SyntaxShape::OneOf(vec![SyntaxShape::Filepath, SyntaxShape::GlobPattern]),
                 "path to file or directory to remove",
             )
             .switch(
