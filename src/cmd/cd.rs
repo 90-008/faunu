@@ -20,7 +20,7 @@ impl Command for Cd {
 
     fn signature(&self) -> Signature {
         Signature::build("cd")
-            .optional("path", SyntaxShape::String, "the path to change into")
+            .optional("path", SyntaxShape::Filepath, "the path to change into")
             .input_output_type(Type::Nothing, Type::Nothing)
             .category(Category::FileSystem)
     }
